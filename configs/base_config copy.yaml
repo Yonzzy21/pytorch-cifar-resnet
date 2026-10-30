@@ -1,0 +1,47 @@
+# ============================================================
+# Base configuration for CIFAR-10 ResNet experiments
+# ============================================================
+
+experiment_name: "cifar10_resnet18_under5m"
+seed: 42
+max_params: 5000000                   # Strict Parameter Budget: 5 Million
+
+# --- Weights & Biases (W&B) Logging ---
+wandb:
+  enabled: true                       # Set to true to log to W&B
+  project: "cifar10-resnet-challenge" # Project name in your W&B dashboard
+  entity: "the_distillers"               # Your W&B team/username
+
+# --- Data ---
+data:
+  data_dir: "../data"                  # Path to Kaggle data
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 2
+  val_ratio: 0.15                     # 15% validation split
+
+# --- Model Architecture ---
+# Parameters: N=4 layers, 3x3 convs throughout, 1x1 skip connections
+# Total parameters: 4,368,690 (Budget: 5,000,000)
+model:
+  name: "CustomResNet"
+  num_layers: 4                       # N: Number of residual layers
+  blocks_per_layer: [2, 2, 2, 2]      # B_i: Number of blocks per residual layer
+  channels: [40, 80, 160, 320]        # C_i: Channels tuned to be ~4.37M (< 5M)
+  conv_kernel_sizes: [3, 3, 3, 3]     # F_i: 3x3 conv kernel throughout
+  skip_kernel_sizes: [1, 1, 1, 1]     # K_i: 1x1 skip connections (saves 537k params!)
+  pool_size: 4                        # P: Average pool kernel size
+  num_classes: 10
+
+# --- Training ---
+training:
+  epochs: 40
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  early_stopping_patience: 5          # Stop training if val/acc does not improve for 5 epochs
+
+# --- Checkpointing ---
+checkpoint:
+  dir: "./checkpoints/baseline_under5m"
+  filename: "best.pth"

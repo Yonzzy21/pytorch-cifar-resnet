@@ -39,6 +39,7 @@ training:
   lr: 0.1
   momentum: 0.9
   weight_decay: 5e-4
+  early_stopping_patience: 5          # Stop training if val/acc does not improve for 5 epochs
 
 # --- Checkpointing ---
 checkpoint:

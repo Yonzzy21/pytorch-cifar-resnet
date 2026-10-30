@@ -236,11 +236,22 @@ def validate(epoch):
 
 
 # 9. Main Execution
+early_stopping_patience = config['training'].get('early_stopping_patience', None)
+epochs_no_improve = 0
+
 for epoch in range(start_epoch, config['training']['epochs']):
     train_loss, train_acc = train(epoch)
+    
+    prev_best = best_acc
     val_loss, val_acc = validate(epoch)
     current_lr = scheduler.get_last_lr()[0]
     scheduler.step()
+
+    # Early stopping check
+    if val_acc > prev_best:
+        epochs_no_improve = 0
+    else:
+        epochs_no_improve += 1
 
     if use_wandb:
         wandb.log({
@@ -251,7 +262,13 @@ for epoch in range(start_epoch, config['training']['epochs']):
             'val/acc': val_acc,
             'learning_rate': current_lr,
             'best_val_acc': best_acc,
+            'epochs_no_improve': epochs_no_improve,
         })
+
+    if early_stopping_patience and epochs_no_improve >= early_stopping_patience:
+        print(f'\n==> Early stopping triggered: Validation accuracy has not improved for {early_stopping_patience} consecutive epochs.')
+        print(f'==> Stopping at epoch {epoch}. Best validation accuracy: {best_acc:.2f}%')
+        break
 
 print(f'\nBest validation accuracy: {best_acc:.2f}%')
 
