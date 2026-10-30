@@ -1,0 +1,29 @@
+#!/bin/bash
+#SBATCH --job-name=resnet-cifar10
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32GB
+#SBATCH --time=12:00:00
+#SBATCH --gres=gpu:1
+#SBATCH --output=logs/train_%j.out
+#SBATCH --error=logs/train_%j.err
+
+# Path to the config file (defaults to configs/base_config.yaml)
+CONFIG_PATH=${1:-"configs/base_config.yaml"}
+
+mkdir -p logs
+mkdir -p checkpoints
+
+echo "Running experiment with config: $CONFIG_PATH"
+
+singularity exec --nv \
+    --overlay /path/to/your/overlay.ext3:ro \
+    /share/apps/images/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif \
+    /bin/bash -c "
+        export PATH=\"/path/to/your/conda_env/bin:\$PATH\"
+        export WANDB_API_KEY=\"<YOUR_WANDB_API_KEY>\"
+        
+        python main.py --config \"$CONFIG_PATH\"
+    "
+

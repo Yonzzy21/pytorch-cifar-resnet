@@ -42,8 +42,12 @@ def init_params(net):
                 init.constant(m.bias, 0)
 
 
-_, term_width = os.popen('stty size', 'r').read().split()
-term_width = int(term_width)
+import shutil
+
+try:
+    term_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+except Exception:
+    term_width = 80
 
 TOTAL_BAR_LENGTH = 65.
 last_time = time.time()

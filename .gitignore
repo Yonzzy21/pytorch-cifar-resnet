@@ -1,0 +1,28 @@
+# Checkpoints & Weights
+checkpoint/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+
+# Weights & Biases
+wandb/
+
+# Slurm / HPC scripts & logs
+*.sbatch
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+
+# OS & Editor files
+.DS_Store
+.vscode/
+.idea/
+*.png
+*.jpg
+

@@ -1,0 +1,41 @@
+# ============================================================
+# Experiment: ResNet-18 with 3x3 Skip Connections (K_i = 3)
+# ============================================================
+
+experiment_name: "resnet18_k3_skip_under5m"
+seed: 42
+max_params: 5000000
+
+# --- Weights & Biases (W&B) Logging ---
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 2
+  val_ratio: 0.15
+
+# Total parameters: 4,906,290 (< 5M)
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [2, 2, 2, 2]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]     # F_i = 3
+  skip_kernel_sizes: [3, 3, 3, 3]     # K_i = 3
+  pool_size: 4                        # P = 4
+  num_classes: 10
+
+training:
+  epochs: 200
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+
+checkpoint:
+  dir: "./checkpoints/resnet18_k3_skip"
+  filename: "best.pth"

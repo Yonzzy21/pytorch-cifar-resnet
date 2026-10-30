@@ -1,34 +1,55 @@
-'''ResNet in PyTorch.
-
-For Pre-activation ResNet, see 'preact_resnet.py'.
-
-Reference:
-[1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
-    Deep Residual Learning for Image Recognition. arXiv:1512.03385
-'''
+'''Customizable ResNet in PyTorch matching course specifications.'''
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(BasicBlock, self).__init__()
+class CustomBlock(nn.Module):
+    """A configurable Residual Block.
+    
+    Contains 2 convolutions with kernel size F x F, followed by BN and ReLU,
+    with a skip connection that uses kernel size K x K when downsampling
+    or changing channels.
+    """
+    def __init__(self, in_planes, planes, stride=1, conv_kernel=3, skip_kernel=1):
+        super(CustomBlock, self).__init__()
+        
+        # Main path: Conv1 (stride = stride) -> BN1 -> ReLU -> Conv2 (stride = 1) -> BN2
+        conv1_pad = (conv_kernel - 1) // 2
         self.conv1 = nn.Conv2d(
-            in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+            in_planes, planes, 
+            kernel_size=conv_kernel, 
+            stride=stride, 
+            padding=conv1_pad, 
+            bias=False
+        )
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
-                               stride=1, padding=1, bias=False)
+        
+        conv2_pad = (conv_kernel - 1) // 2
+        self.conv2 = nn.Conv2d(
+            planes, planes, 
+            kernel_size=conv_kernel, 
+            stride=1, 
+            padding=conv2_pad, 
+            bias=False
+        )
         self.bn2 = nn.BatchNorm2d(planes)
 
+        # Skip connection path:
+        # If dimensions or channels match and stride is 1, it is identity (no-op).
+        # Otherwise, project using conv with kernel K x K and stride = stride.
         self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion*planes:
+        if stride != 1 or in_planes != planes:
+            skip_pad = (skip_kernel - 1) // 2
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion*planes)
+                nn.Conv2d(
+                    in_planes, planes, 
+                    kernel_size=skip_kernel, 
+                    stride=stride, 
+                    padding=skip_pad, 
+                    bias=False
+                ),
+                nn.BatchNorm2d(planes)
             )
 
     def forward(self, x):
@@ -39,94 +60,103 @@ class BasicBlock(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
-                               stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion *
-                               planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion*planes)
-
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion*planes,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion*planes)
+class CustomResNet(nn.Module):
+    """Configurable ResNet for 32x32 images.
+    
+    Parameters:
+      num_layers: N (number of residual layers, default 4)
+      blocks_per_layer: B_i list (e.g. [2, 2, 2, 2])
+      channels: C_i list (e.g. [64, 128, 256, 512])
+      conv_kernel_sizes: F_i list (e.g. [3, 3, 3, 3])
+      skip_kernel_sizes: K_i list (e.g. [1, 1, 1, 1] or [3, 3, 3, 3])
+      pool_size: P (average pool kernel size, default 4)
+      num_classes: number of output classes (default 10)
+    """
+    def __init__(self, 
+                 num_layers=4,
+                 blocks_per_layer=None,
+                 channels=None,
+                 conv_kernel_sizes=None,
+                 skip_kernel_sizes=None,
+                 pool_size=4,
+                 num_classes=10):
+        super(CustomResNet, self).__init__()
+        
+        # Default to standard ResNet-18 hyperparameters if not specified
+        if blocks_per_layer is None:
+            blocks_per_layer = [2, 2, 2, 2]
+        if channels is None:
+            channels = [64, 128, 256, 512]
+        if conv_kernel_sizes is None:
+            conv_kernel_sizes = [3] * num_layers
+        if skip_kernel_sizes is None:
+            skip_kernel_sizes = [1] * num_layers
+            
+        assert len(blocks_per_layer) == num_layers
+        assert len(channels) == num_layers
+        assert len(conv_kernel_sizes) == num_layers
+        assert len(skip_kernel_sizes) == num_layers
+        
+        self.num_layers = num_layers
+        self.pool_size = pool_size
+        
+        # Initial Convolution: 3 -> C_1 channels, 3x3 kernel, stride 1
+        initial_channels = channels[0]
+        self.conv1 = nn.Conv2d(3, initial_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(initial_channels)
+        
+        # Build N residual layers
+        self.layers = nn.ModuleList()
+        current_in_planes = initial_channels
+        
+        for i in range(num_layers):
+            out_planes = channels[i]
+            num_blocks = blocks_per_layer[i]
+            conv_k = conv_kernel_sizes[i]
+            skip_k = skip_kernel_sizes[i]
+            
+            # The first residual layer (i=0) has stride=1.
+            # Subsequent layers (i>0) downsample with stride=2 on their first block.
+            stride = 1 if i == 0 else 2
+            
+            layer = self._make_layer(
+                in_planes=current_in_planes,
+                planes=out_planes,
+                num_blocks=num_blocks,
+                stride=stride,
+                conv_kernel=conv_k,
+                skip_kernel=skip_k
             )
+            self.layers.append(layer)
+            current_in_planes = out_planes
+            
+        # Classifier
+        self.linear = nn.Linear(channels[-1], num_classes)
+
+    def _make_layer(self, in_planes, planes, num_blocks, stride, conv_kernel, skip_kernel):
+        strides = [stride] + [1] * (num_blocks - 1)
+        blocks = []
+        for s in strides:
+            blocks.append(CustomBlock(
+                in_planes=in_planes, 
+                planes=planes, 
+                stride=s, 
+                conv_kernel=conv_kernel, 
+                skip_kernel=skip_kernel
+            ))
+            in_planes = planes
+        return nn.Sequential(*blocks)
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10):
-        super(ResNet, self).__init__()
-        self.in_planes = 64
-
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3,
-                               stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.linear = nn.Linear(512*block.expansion, num_classes)
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1]*(num_blocks-1)
-        layers = []
-        for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
-            self.in_planes = planes * block.expansion
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = F.avg_pool2d(out, 4)
+        for layer in self.layers:
+            out = layer(out)
+        out = F.avg_pool2d(out, self.pool_size)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
         return out
 
 
 def ResNet18():
-    return ResNet(BasicBlock, [2, 2, 2, 2])
-
-
-def ResNet34():
-    return ResNet(BasicBlock, [3, 4, 6, 3])
-
-
-def ResNet50():
-    return ResNet(Bottleneck, [3, 4, 6, 3])
-
-
-def ResNet101():
-    return ResNet(Bottleneck, [3, 4, 23, 3])
-
-
-def ResNet152():
-    return ResNet(Bottleneck, [3, 8, 36, 3])
-
-
-def test():
-    net = ResNet18()
-    y = net(torch.randn(1, 3, 32, 32))
-    print(y.size())
-
-# test()
+    """Default ResNet-18 builder with K_i=1."""
+    return CustomResNet()
