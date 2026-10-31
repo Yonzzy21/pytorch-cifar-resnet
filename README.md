@@ -56,6 +56,25 @@ sbatch train.sbatch configs/resnet18_k3_skip.yaml
 
 ---
 
+## 🔮 Generating Kaggle Submissions
+
+To run inference on the test set and generate a `submission.csv` for Kaggle:
+
+```bash
+python predict.py --config configs/resnet18_k3_skip.yaml
+```
+
+* By default, it loads `best.pth` from the checkpoint directory specified in the config.
+* To specify a custom checkpoint or output filename:
+  ```bash
+  python predict.py \
+      --config configs/resnet18_k3_skip.yaml \
+      --checkpoint checkpoints/resnet18_k3_skip/best.pth \
+      --output submissions/sub_k3_skip.csv
+  ```
+
+---
+
 ## 🧪 Creating a New Experiment
 
 To test a new architecture or set of hyperparameters:
