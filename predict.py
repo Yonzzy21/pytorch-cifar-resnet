@@ -100,7 +100,7 @@ def main():
         testset,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=data_cfg.get('num_workers', 2),
+        num_workers=0,
     )
 
     print(f'==> Running inference on {len(testset)} test images..')

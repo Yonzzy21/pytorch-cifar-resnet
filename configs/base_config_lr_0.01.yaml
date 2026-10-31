@@ -2,7 +2,7 @@
 # Base configuration for CIFAR-10 ResNet experiments
 # ============================================================
 
-experiment_name: "cifar10_resnet18_under5m"
+experiment_name: "cifar10_resnet18_aug_lr0.01"
 seed: 42
 max_params: 5000000                   # Strict Parameter Budget: 5 Million
 
@@ -20,6 +20,16 @@ data:
   num_workers: 2
   val_ratio: 0.15                     # 15% validation split
 
+# Configurable Augmentation Pipeline
+  augmentation:
+    random_crop: true                 # Random crop with 4-pixel reflection padding
+    horizontal_flip: true             # 50% chance horizontal flip
+    cutout: true                      # RandomErasing / Cutout (masks random patches)
+    cutout_prob: 0.5                  # 50% probability of applying Cutout
+    color_jitter: false               # Lighting/contrast adjustments
+    autoaugment: true                # Neural-search CIFAR-10 policy
+
+
 # --- Model Architecture ---
 # Parameters: N=4 layers, 3x3 convs throughout, 1x1 skip connections
 # Total parameters: 4,368,690 (Budget: 5,000,000)
@@ -35,13 +45,13 @@ model:
 
 # --- Training ---
 training:
-  epochs: 40
+  epochs: 80
   lr: 0.01
   momentum: 0.9
   weight_decay: 5e-4
-  early_stopping_patience: 5          # Stop training if val/acc does not improve for 5 epochs
+  early_stopping_patience: 10         # Give augmented data room to converge
 
 # --- Checkpointing ---
 checkpoint:
-  dir: "./checkpoints/baseline_under5m"
+  dir: "./checkpoints/aug_lr0.01"
   filename: "best.pth"

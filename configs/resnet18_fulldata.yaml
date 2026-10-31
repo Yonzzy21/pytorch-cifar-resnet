@@ -1,0 +1,51 @@
+# ============================================================
+# Full Dataset Training Configuration (100% of Data)
+# ============================================================
+# Uses all 50,000 images to maximize generalization on the 
+# Kaggle test set. Trained for 45 epochs with Cutout augmentation.
+# ============================================================
+
+experiment_name: "resnet18_fulldata_submission"
+seed: 42
+max_params: 5000000
+
+# --- Weights & Biases (W&B) ---
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+# --- Data ---
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 2
+  val_ratio: 0.0                      # 0.0 = Use 100% of data for training!
+  random_erasing: true                # Cutout augmentation (prevents overfitting)
+
+# --- Model Architecture ---
+# Total parameters: 4,368,690 (< 5M)
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [2, 2, 2, 2]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]     # 3x3 convs
+  skip_kernel_sizes: [1, 1, 1, 1]     # 1x1 shortcuts
+  pool_size: 4
+  num_classes: 10
+
+# --- Training ---
+training:
+  epochs: 50
+  lr: 0.05
+  momentum: 0.9
+  weight_decay: 5e-4
+  early_stopping_patience: null       # Run full 50 epochs since we use 100% data
+
+# --- Checkpointing ---
+checkpoint:
+  dir: "./checkpoints/fulldata_submission"
+  filename: "best.pth"
+

@@ -36,20 +36,45 @@ print(f'===> Experiment: {experiment_name}')
 # 3. Data Transformations & Loaders
 print('==> Preparing data..')
 data_cfg = config['data']
+aug_cfg = data_cfg.get('augmentation', {})
 
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
+train_transform_list = []
+
+# 1. Spatial / Geometry augmentations on PIL Image
+if aug_cfg.get('random_crop', True):
+    train_transform_list.append(transforms.RandomCrop(32, padding=4, padding_mode='reflect'))
+
+if aug_cfg.get('horizontal_flip', True):
+    train_transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
+
+# Optional: AutoAugment policy optimized for CIFAR-10
+if aug_cfg.get('autoaugment', False):
+    train_transform_list.append(transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10))
+
+# Optional: Color Jitter (lighting / contrast variations)
+if aug_cfg.get('color_jitter', False):
+    train_transform_list.append(transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2))
+
+# 2. Convert to Tensor & Normalize
+train_transform_list.extend([
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
+
+# 3. Tensor augmentations: Cutout / RandomErasing (must run on Tensor)
+if aug_cfg.get('cutout', True):
+    p = aug_cfg.get('cutout_prob', 0.5)
+    train_transform_list.append(
+        transforms.RandomErasing(p=p, scale=(0.02, 0.33), ratio=(0.3, 3.3), value='random')
+    )
+
+transform_train = transforms.Compose(train_transform_list)
 
 transform_test = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
-# Validation split from training data
 full_trainset = CIFAR10Kaggle(
     csv_file=os.path.join(data_cfg['data_dir'], 'train_labels.csv'),
     img_dir=os.path.join(data_cfg['data_dir'], 'train_images'),
@@ -58,37 +83,48 @@ full_trainset = CIFAR10Kaggle(
 
 val_ratio = data_cfg.get('val_ratio', 0.15)
 total = len(full_trainset)
-val_size = int(total * val_ratio)
-train_size = total - val_size
 
-trainset, valset = torch.utils.data.random_split(
-    full_trainset, [train_size, val_size],
-    generator=torch.Generator().manual_seed(config.get('seed', 42))
-)
+if val_ratio and val_ratio > 0.0:
+    val_size = int(total * val_ratio)
+    train_size = total - val_size
 
-# Validation set uses test-time transforms (no augmentation)
-valset_eval = CIFAR10Kaggle(
-    csv_file=os.path.join(data_cfg['data_dir'], 'train_labels.csv'),
-    img_dir=os.path.join(data_cfg['data_dir'], 'train_images'),
-    transform=transform_test,
-)
-valset_eval = torch.utils.data.Subset(valset_eval, valset.indices)
+    trainset, valset = torch.utils.data.random_split(
+        full_trainset, [train_size, val_size],
+        generator=torch.Generator().manual_seed(config.get('seed', 42))
+    )
 
-trainloader = torch.utils.data.DataLoader(
-    trainset,
-    batch_size=data_cfg['train_batch_size'],
-    shuffle=True,
-    num_workers=data_cfg['num_workers'],
-)
+    # Validation set uses test-time transforms (no augmentation)
+    valset_eval = CIFAR10Kaggle(
+        csv_file=os.path.join(data_cfg['data_dir'], 'train_labels.csv'),
+        img_dir=os.path.join(data_cfg['data_dir'], 'train_images'),
+        transform=transform_test,
+    )
+    valset_eval = torch.utils.data.Subset(valset_eval, valset.indices)
 
-valloader = torch.utils.data.DataLoader(
-    valset_eval,
-    batch_size=data_cfg['test_batch_size'],
-    shuffle=False,
-    num_workers=data_cfg['num_workers'],
-)
+    trainloader = torch.utils.data.DataLoader(
+        trainset,
+        batch_size=data_cfg['train_batch_size'],
+        shuffle=True,
+        num_workers=data_cfg['num_workers'],
+    )
 
-print(f'   Train: {train_size} samples | Val: {val_size} samples')
+    valloader = torch.utils.data.DataLoader(
+        valset_eval,
+        batch_size=data_cfg['test_batch_size'],
+        shuffle=False,
+        num_workers=data_cfg['num_workers'],
+    )
+    print(f'   Train: {train_size} samples | Val: {val_size} samples')
+else:
+    # Full dataset training (100% of samples used for training)
+    trainloader = torch.utils.data.DataLoader(
+        full_trainset,
+        batch_size=data_cfg['train_batch_size'],
+        shuffle=True,
+        num_workers=data_cfg['num_workers'],
+    )
+    valloader = None
+    print(f'   Full Training Mode: using all {total} samples for training (no validation split)')
 
 # 4. Dynamic Model Building
 model_cfg = config['model']
@@ -241,37 +277,55 @@ epochs_no_improve = 0
 
 for epoch in range(start_epoch, config['training']['epochs']):
     train_loss, train_acc = train(epoch)
-    
-    prev_best = best_acc
-    val_loss, val_acc = validate(epoch)
     current_lr = scheduler.get_last_lr()[0]
     scheduler.step()
 
-    # Early stopping check
-    if val_acc > prev_best:
-        epochs_no_improve = 0
-    else:
-        epochs_no_improve += 1
+    metrics = {
+        'epoch': epoch,
+        'train/loss': train_loss,
+        'train/acc': train_acc,
+        'learning_rate': current_lr,
+    }
 
-    if use_wandb:
-        wandb.log({
-            'epoch': epoch,
-            'train/loss': train_loss,
-            'train/acc': train_acc,
+    if valloader is not None:
+        prev_best = best_acc
+        val_loss, val_acc = validate(epoch)
+
+        if val_acc > prev_best:
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+
+        metrics.update({
             'val/loss': val_loss,
             'val/acc': val_acc,
-            'learning_rate': current_lr,
             'best_val_acc': best_acc,
             'epochs_no_improve': epochs_no_improve,
         })
 
-    if early_stopping_patience and epochs_no_improve >= early_stopping_patience:
-        print(f'\n==> Early stopping triggered: Validation accuracy has not improved for {early_stopping_patience} consecutive epochs.')
-        print(f'==> Stopping at epoch {epoch}. Best validation accuracy: {best_acc:.2f}%')
-        break
+        if early_stopping_patience and epochs_no_improve >= early_stopping_patience:
+            print(f'\n==> Early stopping triggered: Validation accuracy has not improved for {early_stopping_patience} consecutive epochs.')
+            print(f'==> Stopping at epoch {epoch}. Best validation accuracy: {best_acc:.2f}%')
+            break
+    else:
+        # Full training mode: save latest weights every epoch
+        state = {
+            'net': net.state_dict(),
+            'acc': train_acc,
+            'epoch': epoch,
+        }
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        torch.save(state, checkpoint_path)
 
-print(f'\nBest validation accuracy: {best_acc:.2f}%')
+    if use_wandb:
+        wandb.log(metrics)
+
+if valloader is not None:
+    print(f'\nBest validation accuracy: {best_acc:.2f}%')
+    if use_wandb:
+        wandb.summary['best_val_acc'] = best_acc
+else:
+    print(f'\nFull training complete! Saved final model to: {checkpoint_path}')
 
 if use_wandb:
-    wandb.summary['best_val_acc'] = best_acc
     wandb.finish()
