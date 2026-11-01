@@ -59,3 +59,5 @@ checkpoint:
 
 
 ##### SAME AS CONV BUT WITH avgPOOL BATCH 64 3 BLOCKS PER LAYER
+##### Using pretrained_backbone: "./checkpoints/rotnet_pretrain/best.pth"
+##### for fine tune, if delete it , it doesnt use pretrain 
