@@ -2,7 +2,7 @@
 # Base configuration for CIFAR-10 ResNet experiments
 # ============================================================
 
-experiment_name: "batch64_3block_avgpool"
+experiment_name: "pretrain_fixed_ssl_dataset"
 seed: 42
 max_params: 5000000                   # Strict Parameter Budget: 5 Million
 
@@ -41,7 +41,7 @@ model:
   conv_kernel_sizes: [3, 3, 3, 3]     # F_i: 3x3 conv kernel throughout
   skip_kernel_sizes: [1, 1, 1, 1]     # K_i: 1x1 skip connections (saves 537k params!)
   pool_size: 4                        # P: Average pool kernel size
-  num_classes: 10
+  num_classes: 4
   shortcut_type: 'avgpool'  # Options: 'conv' | 'avgpool'
 
 # --- Training ---

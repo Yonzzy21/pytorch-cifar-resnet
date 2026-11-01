@@ -105,14 +105,14 @@ if val_ratio and val_ratio > 0.0:
         trainset,
         batch_size=data_cfg['train_batch_size'],
         shuffle=True,
-        num_workers=data_cfg['num_workers'],
+        num_workers=data_cfg['num_workers'],pin_memory=True
     )
 
     valloader = torch.utils.data.DataLoader(
         valset_eval,
         batch_size=data_cfg['test_batch_size'],
         shuffle=False,
-        num_workers=data_cfg['num_workers'],
+        num_workers=data_cfg['num_workers'],pin_memory=True
     )
     print(f'   Train: {train_size} samples | Val: {val_size} samples')
 else:
@@ -121,7 +121,7 @@ else:
         full_trainset,
         batch_size=data_cfg['train_batch_size'],
         shuffle=True,
-        num_workers=data_cfg['num_workers'],
+        num_workers=data_cfg['num_workers'],pin_memory=True
     )
     valloader = None
     print(f'   Full Training Mode: using all {total} samples for training (no validation split)')
@@ -151,6 +151,24 @@ if total_params > max_budget:
         f"PARAMETER BUDGET EXCEEDED: Model has {total_params:,} parameters, "
         f"which is strictly greater than the allowed budget of {max_budget:,}!"
     )
+
+# Optional: Load Self-Supervised / Pretrained Backbone Weights
+pretrained_path = config.get('pretrained_backbone', None)
+if pretrained_path:
+    print(f'==> Loading pretrained backbone weights from: {pretrained_path}..')
+    assert os.path.isfile(pretrained_path), f'Error: pretrained checkpoint not found at {pretrained_path}'
+    ckpt = torch.load(pretrained_path, map_location=device, weights_only=False)
+    state_dict = ckpt.get('net', ckpt)
+
+    # Clean 'module.' prefix and strip classifier head (e.g. 4-class rotation head)
+    backbone_dict = {}
+    for k, v in state_dict.items():
+        clean_key = k[7:] if k.startswith('module.') else k
+        if not clean_key.startswith('linear.'):
+            backbone_dict[clean_key] = v
+
+    missing, unexpected = net.load_state_dict(backbone_dict, strict=False)
+    print(f'==> Backbone weights transferred! Initialized fresh 10-class head ({missing}).')
 
 net = net.to(device)
 if device == 'cuda':
@@ -208,7 +226,7 @@ def train(epoch):
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
-        inputs, targets = inputs.to(device), targets.to(device)
+        inputs, targets = inputs.to(device,non_blocking=True), targets.to(device,non_blocking=True)
         optimizer.zero_grad()
         outputs = net(inputs)
         loss = criterion(outputs, targets)
@@ -239,7 +257,7 @@ def validate(epoch):
     total = 0
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(valloader):
-            inputs, targets = inputs.to(device), targets.to(device)
+            inputs, targets = inputs.to(device,non_blocking=True), targets.to(device,non_blocking=True)
             outputs = net(inputs)
             loss = criterion(outputs, targets)
 
