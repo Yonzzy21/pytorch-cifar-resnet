@@ -17,19 +17,21 @@ class CIFAR10Kaggle(Dataset):
         self.df = pd.read_csv(csv_file)
         self.img_dir = img_dir
         self.transform = transform
+        # Fast Python lists for filenames and labels (no pandas overhead in __getitem__)
+        self.filenames = self.df['filename'].tolist()
+        self.labels = self.df['label'].tolist()
 
     def __len__(self):
-        return len(self.df)
+        return len(self.filenames)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        img_path = os.path.join(self.img_dir, row['filename'])
+        img_path = os.path.join(self.img_dir, self.filenames[idx])
         image = Image.open(img_path).convert('RGB')
 
         if self.transform:
             image = self.transform(image)
 
-        label = int(row['label'])
+        label = self.labels[idx]
         return image, label
 
 
@@ -45,17 +47,17 @@ class CIFAR10KaggleTest(Dataset):
         self.df = pd.read_csv(csv_file)
         self.img_dir = img_dir
         self.transform = transform
+        self.filenames = self.df['filename'].tolist()
+        self.ids = self.df['id'].tolist()
 
     def __len__(self):
-        return len(self.df)
+        return len(self.filenames)
 
     def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        img_path = os.path.join(self.img_dir, row['filename'])
+        img_path = os.path.join(self.img_dir, self.filenames[idx])
         image = Image.open(img_path).convert('RGB')
 
         if self.transform:
             image = self.transform(image)
 
-        return image, int(row['id'])
-
+        return image, self.ids[idx]

@@ -23,7 +23,7 @@ data:
 # Configurable Augmentation Pipeline
   augmentation:
     random_crop: true                 # Random crop with 4-pixel reflection padding
-    horizontal_flip: true             # 50% chance horizontal flip
+    horizontal_flip: false             # 50% chance horizontal flip
     cutout: true                      # RandomErasing / Cutout (masks random patches)
     cutout_prob: 0.5                  # 50% probability of applying Cutout
     color_jitter: true               # Lighting/contrast adjustments
