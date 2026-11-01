@@ -2,7 +2,7 @@
 # Base configuration for CIFAR-10 ResNet experiments
 # ============================================================
 
-experiment_name: "cifar10_resnet18_lr_0.01_batch64_3block_per_layer"
+experiment_name: "batch64_3block_avgpool"
 seed: 42
 max_params: 5000000                   # Strict Parameter Budget: 5 Million
 
@@ -54,7 +54,7 @@ training:
 
 # --- Checkpointing ---
 checkpoint:
-  dir: "./checkpoints/aug_lr0.01"
+  dir: "./checkpoints/batch64_3block_avgpool"
   filename: "best.pth"
 
 
