@@ -1,0 +1,61 @@
+# ============================================================
+# Distillation TEACHER: B x 2 wide + AutoAugment, 300 epochs
+# Not a submission model: max_params is lifted to 100M.
+#
+# Architecture: B's layout [3,7,6,1], channels doubled -> C=[80,160,320,640]
+#   avgpool shortcut, 19.9M params, 1.93 GMACs/image (4.0x B).
+# Recipe: identical to arch_B_autoaug_e300 (our best student, 97.06% val):
+#   crop + flip + AutoAugment + cutout, batch 128, lr 0.1, cosine over 300 epochs,
+#   same 45k/5k split (seed 42), so the 5k val images stay unseen by the teacher.
+#   Only addition: amp: true (bf16 autocast) for speed.
+# Bar to clear: clearly above the student's 97.06%, ideally >= 97.5%.
+# Outputs: checkpoints/teacher_B2x_aa_e300/best.pth (used by the students)
+#          and last.pth (full state; resume with --resume if the session ends).
+# See BRANCH_NOTES.md, section 6.
+# ============================================================
+
+experiment_name: "teacher_B2x_aa_e300"
+seed: 42
+max_params: 100000000              # Teacher only, never submitted
+
+wandb:
+  enabled: false                      # Teacher trains silently: results only in logs/ and checkpoints/
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 4                      # AutoAugment runs on CPU; 2 workers may starve the GPU
+  val_ratio: 0.10                     # 45k train, 5k val
+  augmentation:
+    random_crop: true
+    horizontal_flip: true
+    cutout: true
+    cutout_prob: 0.5
+    color_jitter: false
+    autoaugment: true                 # New vs. arch_B_shift_deepen
+
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [3, 7, 6, 1]
+  channels: [80, 160, 320, 640]     # 2x B
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 10
+
+training:
+  epochs: 300
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  amp: true                           # bf16 mixed precision (~2x faster)
+  early_stopping_patience: null       # Disabled: let the cosine schedule run to the end
+
+checkpoint:
+  dir: "./checkpoints/teacher_B2x_aa_e300"
+  filename: "best.pth"

@@ -1,0 +1,67 @@
+# ============================================================
+# Distillation STUDENT: B, all 50k images (final submission candidate)
+#
+# Model: B (submission architecture) [3,7,6,1], C=[40,80,160,320], 4,976,530 params.
+# Recipe: arch_B_autoaug_e300 (97.06% val) + distillation:
+#   loss = MSE(student logits, teacher logits) [+ ce_weight * CE(true label), weight 0]
+#   The teacher (frozen) sees the same augmented batch as the student.
+#   amp: true (bf16) for speed; the only other change vs. arch_B_autoaug_e300.
+# Requires: checkpoints/teacher_B2x_aa_e300/best.pth (train the teacher first).
+# val_ratio 0: no validation; use only if student_B_kd_e300 beats 97.06%.
+# The teacher never saw the 5k val images; for those it gives softer logits (fine).
+# See BRANCH_NOTES.md, section 6.
+# ============================================================
+
+experiment_name: "student_B_kd_e300_full"
+seed: 42
+max_params: 5000000
+
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 4                      # AutoAugment runs on CPU; 2 workers may starve the GPU
+  val_ratio: 0                        # Train on all 50k
+  augmentation:
+    random_crop: true
+    horizontal_flip: true
+    cutout: true
+    cutout_prob: 0.5
+    color_jitter: false
+    autoaugment: true                 # New vs. arch_B_shift_deepen
+
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [3, 7, 6, 1]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 10
+
+training:
+  epochs: 300
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  amp: true                           # bf16 mixed precision (~2x faster)
+  early_stopping_patience: null       # Disabled: let the cosine schedule run to the end
+
+distillation:
+  enabled: true
+  teacher_config: "configs/teacher_B2x_aa_e300.yaml"
+  teacher_checkpoint: "./checkpoints/teacher_B2x_aa_e300/best.pth"
+  loss: "mse"                         # Match raw logits ('kl' = classic softened-probability KD)
+  temperature: 4.0                    # Used only by loss: kl
+  ce_weight: 0.0                      # Weight of the true-label loss (0 = learn from the teacher only)
+
+checkpoint:
+  dir: "./checkpoints/student_B_kd_e300_full"
+  filename: "best.pth"

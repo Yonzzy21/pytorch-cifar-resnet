@@ -1,0 +1,63 @@
+# ============================================================
+# Augmentation experiment: B + AutoAugment, 200 epochs
+#
+# Architecture: identical to arch_B_shift_deepen
+#   [3,7,6,1], C=[40,80,160,320], avgpool shortcut, 4,976,530 params.
+#
+# Epochs: 200 instead of 100 (cosine schedule stretched to 200).
+#   Stronger augmentation makes each epoch's data more varied, so the model
+#   needs more passes to benefit. There is no exact "dataset multiplier" for
+#   augmentation; 2x is a conventional choice, not a derived one.
+#   Fair comparisons: autoaug_e200 vs. cutmix_e200 (same epochs), and each
+#   vs. arch_B_e200 (B's augmentation at 200 epochs, to be run separately).
+# See BRANCH_NOTES.md, section 5.
+#
+# Augmentation pipeline (training only, in this order):
+#   RandomCrop 32, pad 4 (reflect) -> HorizontalFlip p=0.5
+#   -> AutoAugment (CIFAR-10 policy) -> Normalize -> Cutout (p=0.5)
+# ============================================================
+
+experiment_name: "arch_B_autoaug_e200"
+seed: 42
+max_params: 5000000
+
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 4                      # AutoAugment runs on CPU; 2 workers may starve the GPU
+  val_ratio: 0.10                     # 45k train, 5k val
+  augmentation:
+    random_crop: true
+    horizontal_flip: true
+    cutout: true
+    cutout_prob: 0.5
+    color_jitter: false
+    autoaugment: true                 # New vs. arch_B_shift_deepen
+
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [3, 7, 6, 1]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 10
+
+training:
+  epochs: 200
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  early_stopping_patience: null       # Disabled: let the cosine schedule run to the end
+
+checkpoint:
+  dir: "./checkpoints/arch_B_autoaug_e200"
+  filename: "best.pth"

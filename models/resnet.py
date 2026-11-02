@@ -12,6 +12,8 @@ class CustomBlock(nn.Module):
       - 'conv': Standard convolution with kernel K x K and stride = stride
       - 'avgpool': AvgPool2d(kernel_size=stride, stride=stride) followed by 1x1 Conv(stride=1)
                    (exact pooling to prevent spatial information loss during downsampling).
+      - 'auto': 'avgpool' only when the conv shortcut would skip pixels (skip_kernel < stride),
+                otherwise 'conv'.
     """
     def __init__(self, in_planes, planes, stride=1, conv_kernel=3, skip_kernel=1, shortcut_type='conv'):
         super(CustomBlock, self).__init__()
@@ -41,7 +43,12 @@ class CustomBlock(nn.Module):
         # If dimensions and channels match (stride == 1 and in_planes == planes), it is identity.
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
-            if shortcut_type == 'avgpool' and stride > 1:
+            # A K x K conv with stride s skips pixels exactly when K < s.
+            use_avgpool = stride > 1 and (
+                shortcut_type == 'avgpool'
+                or (shortcut_type == 'auto' and skip_kernel < stride)
+            )
+            if use_avgpool:
                 # Information-preserving downsampling:
                 # AvgPool2d pools an exact non-overlapping window of size (stride x stride).
                 # Every single input pixel is accounted for (0% discarded pixels).
@@ -81,7 +88,7 @@ class CustomResNet(nn.Module):
       channels: C_i list (e.g. [40, 80, 160, 320])
       conv_kernel_sizes: F_i list (e.g. [3, 3, 3, 3])
       skip_kernel_sizes: K_i list (e.g. [1, 1, 1, 1] or [3, 3, 3, 3])
-      shortcut_type: 'conv' or 'avgpool' (information-preserving downsampling)
+      shortcut_type: 'conv', 'avgpool', or 'auto' (avgpool only where the conv would skip pixels)
       strides: list of strides for each stage (default: [1, 2, 2, 2])
       pool_size: P (average pool kernel size, default 4)
       num_classes: number of output classes (default 10)

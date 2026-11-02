@@ -3,15 +3,19 @@ import os
 import argparse
 import yaml
 
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 
 import torchvision.transforms as transforms
 import wandb
 import models
+from cutmix import cutmix_batch
 from dataset import CIFAR10Kaggle
+from normalization import get_normalize
 from utils import progress_bar
 
 # 1. Parse Arguments
@@ -29,6 +33,7 @@ with open(args.config, 'r') as f:
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0.0  # Best test accuracy
 start_epoch = 0  # Start epoch
+epochs_no_improve = 0
 
 experiment_name = config.get('experiment_name', 'default')
 print(f'===> Experiment: {experiment_name}')
@@ -51,14 +56,19 @@ if aug_cfg.get('horizontal_flip', True):
 if aug_cfg.get('autoaugment', False):
     train_transform_list.append(transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10))
 
+# Optional: AugMix (Hendrycks et al., 2020): mixes several augmentation chains per image.
+# torchvision's version omits the paper's Jensen-Shannon consistency loss.
+if aug_cfg.get('augmix', False):
+    train_transform_list.append(transforms.AugMix())
+
 # Optional: Color Jitter (lighting / contrast variations)
 if aug_cfg.get('color_jitter', False):
     train_transform_list.append(transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2))
 
-# 2. Convert to Tensor & Normalize
+# 2. Convert to Tensor & Normalize (data.normalization: 'dataset' or 'per_image')
 train_transform_list.extend([
     transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    get_normalize(data_cfg),
 ])
 
 # 3. Tensor augmentations: Cutout / RandomErasing (must run on Tensor)
@@ -70,9 +80,16 @@ if aug_cfg.get('cutout', True):
 
 transform_train = transforms.Compose(train_transform_list)
 
+# 4. Batch-level augmentation: CutMix (mixes pairs of images in the training loop)
+use_cutmix = aug_cfg.get('cutmix', False)
+cutmix_alpha = aug_cfg.get('cutmix_alpha', 1.0)
+cutmix_prob = aug_cfg.get('cutmix_prob', 0.5)
+if use_cutmix:
+    print(f'   CutMix enabled (alpha={cutmix_alpha}, prob={cutmix_prob})')
+
 transform_test = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    get_normalize(data_cfg),
 ])
 
 full_trainset = CIFAR10Kaggle(
@@ -127,20 +144,20 @@ else:
     print(f'   Full Training Mode: using all {total} samples for training (no validation split)')
 
 # 4. Dynamic Model Building
-model_cfg = config['model']
-model_name = model_cfg.get('name', 'CustomResNet')
-print(f'==> Building model: {model_name}..')
-
-if hasattr(models, model_name):
+def build_model(model_cfg):
+    model_name = model_cfg.get('name', 'CustomResNet')
+    if not hasattr(models, model_name):
+        raise ValueError(f"Model '{model_name}' not found in models module.")
     model_cls = getattr(models, model_name)
     # Pass kwargs if CustomResNet, else standard call
     if model_name == 'CustomResNet':
-        kwargs = {k: v for k, v in model_cfg.items() if k != 'name'}
-        net = model_cls(**kwargs)
-    else:
-        net = model_cls()
-else:
-    raise ValueError(f"Model '{model_name}' not found in models module.")
+        return model_cls(**{k: v for k, v in model_cfg.items() if k != 'name'})
+    return model_cls()
+
+
+model_cfg = config['model']
+print(f"==> Building model: {model_cfg.get('name', 'CustomResNet')}..")
+net = build_model(model_cfg)
 
 # Check and print parameter budget before training
 total_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
@@ -159,6 +176,49 @@ if device == 'cuda':
 
 checkpoint_dir = config['checkpoint']['dir']
 checkpoint_path = os.path.join(checkpoint_dir, config['checkpoint']['filename'])
+last_path = os.path.join(checkpoint_dir, 'last.pth')  # Full training state, overwritten every epoch
+
+# Mixed precision (bf16 autocast): ~2x faster on A100/L4, no loss scaling needed
+use_amp = config['training'].get('amp', False)
+if use_amp:
+    print('==> Mixed precision (bf16 autocast) enabled')
+
+
+def autocast():
+    return torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=use_amp)
+
+
+# Knowledge distillation: a frozen teacher's logits are the student's training target
+distill_cfg = config.get('distillation', {})
+use_distill = distill_cfg.get('enabled', False)
+if use_distill:
+    with open(distill_cfg['teacher_config'], 'r') as f:
+        teacher_config = yaml.safe_load(f)
+    teacher = build_model(teacher_config['model'])
+    teacher_ckpt = torch.load(distill_cfg['teacher_checkpoint'], map_location=device, weights_only=True)
+    # Strip the DataParallel 'module.' prefix
+    teacher.load_state_dict({k.removeprefix('module.'): v for k, v in teacher_ckpt['net'].items()})
+    teacher = teacher.to(device).eval()
+    for p in teacher.parameters():
+        p.requires_grad_(False)
+    distill_loss_type = distill_cfg.get('loss', 'mse')
+    distill_temperature = distill_cfg.get('temperature', 4.0)
+    ce_weight = distill_cfg.get('ce_weight', 0.0)
+    teacher_params = sum(p.numel() for p in teacher.parameters())
+    print(f"==> Distillation: teacher {distill_cfg['teacher_checkpoint']} "
+          f"({teacher_params:,} params, val acc {teacher_ckpt.get('acc', float('nan')):.2f}% "
+          f"at epoch {teacher_ckpt.get('epoch', '?')}) | loss={distill_loss_type} | ce_weight={ce_weight}")
+
+
+def distill_loss(student_logits, teacher_logits):
+    s, t = student_logits.float(), teacher_logits.float()
+    if distill_loss_type == 'mse':
+        # Match raw logits (mean over batch and classes)
+        return F.mse_loss(s, t)
+    # Classic Hinton KD on temperature-softened probabilities
+    T = distill_temperature
+    return F.kl_div(F.log_softmax(s / T, dim=1), F.log_softmax(t / T, dim=1),
+                    log_target=True, reduction='batchmean') * T * T
 
 # Setup Weights & Biases (W&B)
 wandb_cfg = config.get('wandb', {})
@@ -176,16 +236,6 @@ if use_wandb:
     wandb.watch(net, log='all', log_freq=100)
     print(f'==> W&B initialized for experiment: {experiment_name}')
 
-# 5. Resume logic
-if args.resume:
-    print('==> Resuming from checkpoint..')
-    assert os.path.isfile(checkpoint_path), \
-        f'Error: no checkpoint found at {checkpoint_path}!'
-    checkpoint = torch.load(checkpoint_path, weights_only=True)
-    net.load_state_dict(checkpoint['net'])
-    best_acc = checkpoint['acc']
-    start_epoch = checkpoint['epoch']
-
 # 6. Loss, Optimizer, and Scheduler
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(
@@ -199,6 +249,20 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     T_max=config['training']['epochs'],
 )
 
+# Resume: restore weights, optimizer (momentum) and LR schedule from last.pth,
+# so a run cut off by a session limit continues exactly where it stopped
+if args.resume:
+    assert os.path.isfile(last_path), f'Error: no checkpoint found at {last_path}!'
+    checkpoint = torch.load(last_path, map_location=device, weights_only=True)
+    net.load_state_dict(checkpoint['net'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    scheduler.load_state_dict(checkpoint['scheduler'])
+    best_acc = checkpoint['best_acc']
+    epochs_no_improve = checkpoint['epochs_no_improve']
+    start_epoch = checkpoint['epoch'] + 1
+    print(f'==> Resumed from {last_path}: continuing at epoch {start_epoch} '
+          f'(lr {scheduler.get_last_lr()[0]:.6f}, best val acc so far {best_acc:.2f}%)')
+
 
 # 7. Train Loop
 def train(epoch):
@@ -210,15 +274,32 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = net(inputs)
-        loss = criterion(outputs, targets)
+        mixed = use_cutmix and np.random.rand() < cutmix_prob
+        if mixed:
+            inputs, targets_a, targets_b, lam = cutmix_batch(inputs, targets, cutmix_alpha)
+        with autocast():
+            outputs = net(inputs)
+            if mixed:
+                # Loss and accuracy are weighted by how much of each image is original vs. pasted
+                loss = lam * criterion(outputs, targets_a) + (1 - lam) * criterion(outputs, targets_b)
+            else:
+                loss = criterion(outputs, targets)
+            if use_distill:
+                # The teacher sees the same augmented batch as the student
+                with torch.no_grad():
+                    teacher_outputs = teacher(inputs)
+                loss = distill_loss(outputs, teacher_outputs) + ce_weight * loss
         loss.backward()
         optimizer.step()
 
-        train_loss += loss.item()
         _, predicted = outputs.max(1)
+        if mixed:
+            correct += (lam * predicted.eq(targets_a).sum().item()
+                        + (1 - lam) * predicted.eq(targets_b).sum().item())
+        else:
+            correct += predicted.eq(targets).sum().item()
+        train_loss += loss.item()
         total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
 
         progress_bar(batch_idx, len(trainloader),
                      'Loss: %.3f | Acc: %.3f%% (%d/%d)'
@@ -240,8 +321,9 @@ def validate(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(valloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs = net(inputs)
-            loss = criterion(outputs, targets)
+            with autocast():
+                outputs = net(inputs)
+            loss = criterion(outputs.float(), targets)
 
             val_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -273,7 +355,6 @@ def validate(epoch):
 
 # 9. Main Execution
 early_stopping_patience = config['training'].get('early_stopping_patience', None)
-epochs_no_improve = 0
 
 for epoch in range(start_epoch, config['training']['epochs']):
     train_loss, train_acc = train(epoch)
@@ -316,6 +397,18 @@ for epoch in range(start_epoch, config['training']['epochs']):
         }
         os.makedirs(checkpoint_dir, exist_ok=True)
         torch.save(state, checkpoint_path)
+
+    # Full training state for --resume; write-then-rename so a kill mid-save can't corrupt it
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    torch.save({
+        'net': net.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'scheduler': scheduler.state_dict(),
+        'epoch': epoch,
+        'best_acc': best_acc,
+        'epochs_no_improve': epochs_no_improve,
+    }, last_path + '.tmp')
+    os.replace(last_path + '.tmp', last_path)
 
     if use_wandb:
         wandb.log(metrics)

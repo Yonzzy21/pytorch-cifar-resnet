@@ -1,0 +1,57 @@
+# ============================================================
+# Batch-size experiment: arch_B_bs64_lr0.05
+# Compare: arch_B_bs64_lr0.05 vs. arch_B_bs64_lr0.1,
+#          reference = arch_B_shift_deepen (batch 128, lr 0.1, 96.00% best val).
+# Architecture identical to arch_B_shift_deepen ([3,7,6,1], C=[40,80,160,320],
+# avgpool shortcut, 4,976,530 params); only train_batch_size and lr differ.
+# See BRANCH_NOTES.md, section 3.
+#
+#   Batch 64, lr 0.05: linear scaling rule (lr proportional to batch size: 0.1 x 64/128 = 0.05), so this
+#        isolates the effect of batch size.
+#   Batch 64 gives ~704 steps/epoch instead of ~352, so epochs take longer.
+# ============================================================
+
+experiment_name: "arch_B_bs64_lr0.05"
+seed: 42
+max_params: 5000000
+
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 64
+  test_batch_size: 100
+  num_workers: 2
+  val_ratio: 0.10                     # 45k train, 5k val
+  augmentation:
+    random_crop: true
+    horizontal_flip: true
+    cutout: true
+    cutout_prob: 0.5
+    color_jitter: false
+    autoaugment: false
+
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [3, 7, 6, 1]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 10
+
+training:
+  epochs: 100
+  lr: 0.05
+  momentum: 0.9
+  weight_decay: 5e-4
+  early_stopping_patience: null       # Disabled: let the cosine schedule run to the end
+
+checkpoint:
+  dir: "./checkpoints/arch_B_bs64_lr0.05"
+  filename: "best.pth"

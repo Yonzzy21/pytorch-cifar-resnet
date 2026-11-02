@@ -1,0 +1,53 @@
+# ============================================================
+# Noise check: arch_B_repeat
+# Identical to arch_B_shift_deepen (96.00%): same architecture, recipe and
+# train/val split (seed 42). Only the name and checkpoint dir differ.
+# torch is not seeded, so weight init, batch order and augmentation differ
+# between runs; the gap between the two runs measures run-to-run noise.
+# See BRANCH_NOTES.md, section 4.
+# ============================================================
+
+experiment_name: "arch_B_repeat"
+seed: 42
+max_params: 5000000
+
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 2
+  val_ratio: 0.10                     # 45k train, 5k val
+  augmentation:
+    random_crop: true
+    horizontal_flip: true
+    cutout: true
+    cutout_prob: 0.5
+    color_jitter: false
+    autoaugment: false
+
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [3, 7, 6, 1]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 10
+
+training:
+  epochs: 100
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  early_stopping_patience: null       # Disabled: let the cosine schedule run to the end
+
+checkpoint:
+  dir: "./checkpoints/arch_B_repeat"
+  filename: "best.pth"

@@ -10,6 +10,7 @@ import torchvision.transforms as transforms
 
 import models
 from dataset import CIFAR10KaggleTest
+from normalization import get_normalize
 
 
 def main():
@@ -22,6 +23,10 @@ def main():
                         help='Path where to save the submission CSV')
     parser.add_argument('--batch_size', type=int, default=100,
                         help='Inference batch size')
+    parser.add_argument('--tta', action='store_true',
+                        help='Test-time augmentation: average softmax over each image and its mirror')
+    parser.add_argument('--bn_adapt', action='store_true',
+                        help='Re-estimate BatchNorm statistics on the (unlabeled) test images before predicting')
     args = parser.parse_args()
 
     # 1. Load Config
@@ -87,7 +92,7 @@ def main():
 
     transform_test = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        get_normalize(config['data']),  # must match training
     ])
 
     testset = CIFAR10KaggleTest(
@@ -103,7 +108,22 @@ def main():
         num_workers=0,
     )
 
-    print(f'==> Running inference on {len(testset)} test images..')
+    if args.bn_adapt:
+        # Replace the training-set BN statistics with statistics of the test images.
+        # No labels are used; weights are unchanged.
+        bn_layers = [m for m in net.modules() if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)]
+        for m in bn_layers:
+            m.reset_running_stats()
+            m.momentum = None  # cumulative average over all test batches
+            m.train()
+        with torch.no_grad():
+            for inputs, _ in testloader:
+                net(inputs.to(device))
+        net.eval()
+        print(f'==> BN adaptation: re-estimated statistics of {len(bn_layers)} BatchNorm layers on the test images')
+
+    print(f'==> Running inference on {len(testset)} test images'
+          f'{" (TTA: original + mirror)" if args.tta else ""}..')
 
     # 6. Predict Loop
     all_ids = []
@@ -112,8 +132,10 @@ def main():
     with torch.no_grad():
         for inputs, ids in tqdm(testloader, desc='Predicting'):
             inputs = inputs.to(device)
-            outputs = net(inputs)
-            _, predicted = outputs.max(1)
+            probs = torch.softmax(net(inputs), dim=1)
+            if args.tta:
+                probs = (probs + torch.softmax(net(torch.flip(inputs, dims=[3])), dim=1)) / 2
+            _, predicted = probs.max(1)
 
             all_ids.extend(ids.tolist())
             all_preds.extend(predicted.cpu().tolist())

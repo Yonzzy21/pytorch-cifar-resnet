@@ -1,0 +1,55 @@
+# ============================================================
+# Depth experiment: arch_D44_aa_e300
+# B's recipe (AutoAugment, 300 epochs, 45k/5k split) with a deeper, narrower layout.
+# Compare with arch_B_autoaug_e300 (97.06% val, 87.50% Kaggle): only the layout differs.
+#
+# Architecture: blocks [4, 9, 8, 1], channels [36, 72, 144, 288], avgpool shortcut
+#   4,990,510 params, 44 convs in blocks (B: 34), compute ~1.0x B (30% deeper, 10% narrower).
+#   Same idea as B (few blocks in stage 4, depth in stages 2-3), pushed further.
+# See BRANCH_NOTES.md, section 8.
+# ============================================================
+
+experiment_name: "arch_D44_aa_e300"
+seed: 42
+max_params: 5000000
+
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 4                      # AutoAugment runs on CPU; 2 workers may starve the GPU
+  val_ratio: 0.10                     # 45k train, 5k val
+  augmentation:
+    random_crop: true
+    horizontal_flip: true
+    cutout: true
+    cutout_prob: 0.5
+    color_jitter: false
+    autoaugment: true                 # New vs. arch_B_shift_deepen
+
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [4, 9, 8, 1]
+  channels: [36, 72, 144, 288]
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 10
+
+training:
+  epochs: 300
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  early_stopping_patience: null       # Disabled: let the cosine schedule run to the end
+
+checkpoint:
+  dir: "./checkpoints/arch_D44_aa_e300"
+  filename: "best.pth"
