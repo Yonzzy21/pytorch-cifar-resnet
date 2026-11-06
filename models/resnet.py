@@ -102,7 +102,8 @@ class CustomResNet(nn.Module):
                  shortcut_type='conv',
                  strides=None,
                  pool_size=4,
-                 num_classes=10):
+                 num_classes=10,
+                 rotation_head=False):
         super(CustomResNet, self).__init__()
         
         # Default hyperparameters
@@ -157,6 +158,9 @@ class CustomResNet(nn.Module):
             
         # Classifier Head
         self.linear = nn.Linear(channels[-1], num_classes)
+        # Optional auxiliary head: predicts the rotation (0/90/180/270) of the input image.
+        # Used only during training; its parameters still count toward the budget.
+        self.rot_linear = nn.Linear(channels[-1], 4) if rotation_head else None
 
     def _make_layer(self, in_planes, planes, num_blocks, stride, conv_kernel, skip_kernel, shortcut_type):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -173,12 +177,14 @@ class CustomResNet(nn.Module):
             in_planes = planes
         return nn.Sequential(*blocks)
 
-    def forward(self, x):
+    def forward(self, x, with_rotation=False):
         out = F.relu(self.bn1(self.conv1(x)))
         for layer in self.layers:
             out = layer(out)
         out = F.avg_pool2d(out, self.pool_size)
         out = out.view(out.size(0), -1)
+        if with_rotation:
+            return self.linear(out), self.rot_linear(out)
         out = self.linear(out)
         return out
 

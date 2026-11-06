@@ -1,0 +1,59 @@
+# Student (arch B, 4.98M) distilled from the existing teacher_B2x_aa_e300, with our heaviest
+# augmentation (TrivialAugment + Cutout + CutMix), 1000 epochs, 45k/5k split, no SAM.
+experiment_name: "student_B_kd_heavy_e1000"
+seed: 42
+max_params: 5000000
+
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+data:
+  data_dir: "../data"
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 4                      # AutoAugment runs on CPU; 2 workers may starve the GPU
+  val_ratio: 0.10                     # 45k train, 5k val
+  augmentation:
+    random_crop: true
+    horizontal_flip: true
+    cutout: true
+    cutout_prob: 0.5
+    color_jitter: false
+    autoaugment: false
+    trivialaugment: true              # Heavy augmentation: one random strong op per image
+    cutmix: true                      # Paste a patch from another image into each image
+    cutmix_alpha: 1.0
+    cutmix_prob: 0.5
+
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [3, 7, 6, 1]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 10
+
+training:
+  epochs: 1000
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  amp: true                           # bf16 mixed precision (~2x faster)
+  early_stopping_patience: null       # Disabled: let the cosine schedule run to the end
+
+distillation:
+  enabled: true
+  teacher_config: "configs/teacher_B2x_aa_e300.yaml"
+  teacher_checkpoint: "./checkpoints/teacher_B2x_aa_e300/best.pth"
+  loss: "mse"                         # Match raw logits ('kl' = classic softened-probability KD)
+  temperature: 4.0                    # Used only by loss: kl
+  ce_weight: 0.0                      # Weight of the true-label loss (0 = learn from the teacher only)
+
+checkpoint:
+  dir: "./checkpoints/student_B_kd_heavy_e1000"
+  filename: "best.pth"

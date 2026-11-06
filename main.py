@@ -1,6 +1,7 @@
 '''Train CIFAR10 with PyTorch and YAML Config.'''
 import os
 import argparse
+import contextlib
 import yaml
 
 import numpy as np
@@ -55,6 +56,10 @@ if aug_cfg.get('horizontal_flip', True):
 # Optional: AutoAugment policy optimized for CIFAR-10
 if aug_cfg.get('autoaugment', False):
     train_transform_list.append(transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10))
+
+# Optional: TrivialAugment (Müller & Hutter, 2021): one random op at a random strength per image
+if aug_cfg.get('trivialaugment', False):
+    train_transform_list.append(transforms.TrivialAugmentWide())
 
 # Optional: AugMix (Hendrycks et al., 2020): mixes several augmentation chains per image.
 # torchvision's version omits the paper's Jensen-Shannon consistency loss.
@@ -238,12 +243,36 @@ if use_wandb:
 
 # 6. Loss, Optimizer, and Scheduler
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(
-    net.parameters(),
-    lr=config['training']['lr'],
-    momentum=config['training']['momentum'],
-    weight_decay=float(config['training']['weight_decay']),
-)
+# training.optimizer: 'sgd' (default), 'adamw', or 'sam' (SGD with sharpness-aware steps)
+optimizer_name = config['training'].get('optimizer', 'sgd')
+if optimizer_name == 'adamw':
+    # Decoupled weight decay (Loshchilov & Hutter); needs its own lr / weight_decay
+    optimizer = optim.AdamW(
+        net.parameters(),
+        lr=config['training']['lr'],
+        weight_decay=float(config['training']['weight_decay']),
+    )
+elif optimizer_name in ('sgd', 'sam'):
+    optimizer = optim.SGD(
+        net.parameters(),
+        lr=config['training']['lr'],
+        momentum=config['training']['momentum'],
+        weight_decay=float(config['training']['weight_decay']),
+    )
+else:
+    raise ValueError(f"Unknown optimizer '{optimizer_name}'")
+use_sam = optimizer_name == 'sam'
+sam_rho = config['training'].get('sam_rho', 0.05)
+print(f"==> Optimizer: {optimizer_name}" + (f' (rho={sam_rho})' if use_sam else ''))
+
+# Auxiliary rotation loss (Hendrycks et al., 2019): the rotation head learns to tell how each
+# training image was rotated; this self-supervised task improves robustness to distribution shift
+rotation_weight = config['training'].get('rotation_weight', 0.0)
+use_rotation = rotation_weight > 0
+if use_rotation:
+    assert config['model'].get('rotation_head', False), 'rotation_weight needs model.rotation_head: true'
+    assert not use_sam and not use_cutmix, 'the rotation loss is not implemented together with SAM or CutMix'
+    print(f'==> Rotation auxiliary loss enabled (weight={rotation_weight})')
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer,
     T_max=config['training']['epochs'],
@@ -264,11 +293,60 @@ if args.resume:
           f'(lr {scheduler.get_last_lr()[0]:.6f}, best val acc so far {best_acc:.2f}%)')
 
 
+def sam_second_pass(inputs, batch_loss):
+    '''SAM (Foret et al., 2021): move the weights to the worst point within radius rho
+    (along the gradient), recompute the gradient there, then move back. optimizer.step()
+    then applies that gradient at the original weights, steering toward flat minima.'''
+    params = [p for p in net.parameters() if p.grad is not None]
+    grad_norm = torch.norm(torch.stack([p.grad.norm(2) for p in params]), 2)
+    scale = sam_rho / (grad_norm + 1e-12)
+    eps = []
+    with torch.no_grad():
+        for p in params:
+            e = p.grad * scale
+            p.add_(e)
+            eps.append(e)
+    optimizer.zero_grad()
+    # Keep the BatchNorm running statistics from the first pass
+    with frozen_bn_stats(), autocast():
+        batch_loss(net(inputs)).backward()
+    with torch.no_grad():
+        for p, e in zip(params, eps):
+            p.sub_(e)
+
+
+@contextlib.contextmanager
+def frozen_bn_stats():
+    '''Forward passes inside this block don't update BatchNorm running statistics (momentum 0).'''
+    bn_layers = [m for m in net.modules() if isinstance(m, nn.modules.batchnorm._BatchNorm)]
+    saved = [m.momentum for m in bn_layers]
+    for m in bn_layers:
+        m.momentum = 0.0
+    try:
+        yield
+    finally:
+        for m, mom in zip(bn_layers, saved):
+            m.momentum = mom
+
+
+def rotation_loss(inputs):
+    '''Rotate each image by a random multiple of 90 degrees and score the rotation head on it.
+    BN running statistics are not updated, so they keep describing upright images only.'''
+    k = torch.randint(0, 4, (inputs.size(0),), device=inputs.device)
+    rotated = inputs.clone()
+    for r in (1, 2, 3):
+        rotated[k == r] = torch.rot90(inputs[k == r], r, dims=(2, 3))
+    with frozen_bn_stats(), autocast():
+        _, rot_logits = net(rotated, with_rotation=True)
+        return criterion(rot_logits, k)
+
+
 # 7. Train Loop
 def train(epoch):
     print(f'\nEpoch: {epoch}')
     net.train()
     train_loss = 0
+    train_rot_loss = 0
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
@@ -277,19 +355,31 @@ def train(epoch):
         mixed = use_cutmix and np.random.rand() < cutmix_prob
         if mixed:
             inputs, targets_a, targets_b, lam = cutmix_batch(inputs, targets, cutmix_alpha)
-        with autocast():
-            outputs = net(inputs)
+        if use_distill:
+            # The teacher sees the same augmented batch as the student
+            with torch.no_grad(), autocast():
+                teacher_outputs = teacher(inputs)
+
+        def batch_loss(outputs):
             if mixed:
                 # Loss and accuracy are weighted by how much of each image is original vs. pasted
                 loss = lam * criterion(outputs, targets_a) + (1 - lam) * criterion(outputs, targets_b)
             else:
                 loss = criterion(outputs, targets)
             if use_distill:
-                # The teacher sees the same augmented batch as the student
-                with torch.no_grad():
-                    teacher_outputs = teacher(inputs)
                 loss = distill_loss(outputs, teacher_outputs) + ce_weight * loss
+            return loss
+
+        with autocast():
+            outputs = net(inputs)
+            loss = batch_loss(outputs)
         loss.backward()
+        if use_sam:
+            sam_second_pass(inputs, batch_loss)
+        if use_rotation:
+            rot_loss = rotation_loss(inputs)
+            (rotation_weight * rot_loss).backward()
+            train_rot_loss += rot_loss.item()
         optimizer.step()
 
         _, predicted = outputs.max(1)
@@ -308,7 +398,8 @@ def train(epoch):
 
     epoch_loss = train_loss / len(trainloader)
     epoch_acc = 100. * correct / total
-    return epoch_loss, epoch_acc
+    epoch_rot_loss = train_rot_loss / len(trainloader)
+    return epoch_loss, epoch_acc, epoch_rot_loss
 
 
 # 8. Validation Loop
@@ -357,7 +448,7 @@ def validate(epoch):
 early_stopping_patience = config['training'].get('early_stopping_patience', None)
 
 for epoch in range(start_epoch, config['training']['epochs']):
-    train_loss, train_acc = train(epoch)
+    train_loss, train_acc, train_rot_loss = train(epoch)
     current_lr = scheduler.get_last_lr()[0]
     scheduler.step()
 
@@ -366,6 +457,7 @@ for epoch in range(start_epoch, config['training']['epochs']):
         'train/loss': train_loss,
         'train/acc': train_acc,
         'learning_rate': current_lr,
+        **({'train/rot_loss': train_rot_loss} if use_rotation else {}),
     }
 
     if valloader is not None:

@@ -263,3 +263,20 @@ Findings: (1) the test-like brightness/contrast shift costs every model only ~0.
 
 D44 added later (same script): 96.68 / 96.86 clean, 96.48 / 96.84 bright+contrast, 94.16 / 94.70 blur, 86.48 / 87.88 JPEG. It is below B and the student in every column. McNemar with TTA, clean: B vs. D44 59/47 (p=0.29); student vs. D44 58/38 (p=0.05). **More depth than B did not help** (D44 is, if anything, worse), so D56 (deeper still) was not run. Depth beyond B's 34 convs is past the useful range at this budget.
 
+
+---
+
+## 10. Optimizer experiment: SAM vs. AdamW (vs. our SGD)
+
+| Config | Optimizer | lr / weight decay | Val | Kaggle (TTA) |
+|---|---|---|---|---|
+| `arch_B_autoaug_e300` | SGD, momentum 0.9 | 0.1 / 5e-4 | 97.06% | 88.20% |
+| `arch_B_aa_sam_e300` | SAM on the same SGD, rho 0.05 | 0.1 / 5e-4 | TBD | TBD |
+| `arch_B_aa_adamw_e300` | AdamW | 1e-3 / 0.05 (decoupled) | TBD | TBD |
+
+Everything else is identical (B, AutoAugment, 300 epochs, cosine). Both new runs use bf16 AMP (the SGD baseline was fp32; AMP has not shown a measurable effect so far).
+
+- **SAM** (Foret et al., 2021) keeps the SGD recipe; each step perturbs the weights by rho along the normalized gradient, recomputes the gradient there and applies it at the original weights, favoring flat minima. ~2× compute per step. BatchNorm running statistics are not updated by the second pass. rho = 0.05 is the paper's CIFAR default.
+- **AdamW** needs its own hyperparameters; lr 1e-3 / wd 0.05 are common defaults, not tuned here (single run), so a result below SGD may partly reflect untuned settings.
+
+**Code** (`main.py`): `training.optimizer: sgd | adamw | sam`, `training.sam_rho`. Default `sgd` (unchanged). Verified: unit test of the SAM step (weights restored exactly after the perturbed pass, BN running stats untouched by it, gradient differs from the first pass) and 1-epoch smoke runs of both configs.
