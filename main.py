@@ -20,6 +20,11 @@ parser.add_argument('--config', type=str, required=True,
                     help='Path to configuration YAML file')
 parser.add_argument('--resume', '-r', action='store_true',
                     help='Resume from checkpoint')
+
+parser.add_argument('--optimizer', type=str, default=None,
+                    help="Override optimizer: 'adamw' or 'sgd'")
+parser.add_argument('--lr', type=float, default=None,
+                    help="Override learning rate")
 args = parser.parse_args()
 
 # 2. Load Config File
@@ -75,14 +80,32 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
+# Check for fast in-memory dataset staged in /dev/shm
+user = os.environ.get('USER', 'yd3245')
+shm_data_dir = f"/dev/shm/{user}/data"
+if os.path.isdir(os.path.join(shm_data_dir, 'train_images')):
+    effective_data_dir = shm_data_dir
+    print(f'==> Using fast in-memory RAM dataset from: {effective_data_dir}')
+else:
+    effective_data_dir = data_cfg['data_dir']
+
 full_trainset = CIFAR10Kaggle(
-    csv_file=os.path.join(data_cfg['data_dir'], 'train_labels.csv'),
-    img_dir=os.path.join(data_cfg['data_dir'], 'train_images'),
+    csv_file=os.path.join(effective_data_dir, 'train_labels.csv'),
+    img_dir=os.path.join(effective_data_dir, 'train_images'),
     transform=transform_train,
 )
 
 val_ratio = data_cfg.get('val_ratio', 0.15)
 total = len(full_trainset)
+
+# Fast DataLoader kwargs: keep workers alive and prefetch batches
+loader_kwargs = {
+    'num_workers': data_cfg['num_workers'],
+    'pin_memory': True,
+}
+if data_cfg['num_workers'] > 0:
+    loader_kwargs['persistent_workers'] = True
+    loader_kwargs['prefetch_factor'] = 4
 
 if val_ratio and val_ratio > 0.0:
     val_size = int(total * val_ratio)
@@ -95,8 +118,8 @@ if val_ratio and val_ratio > 0.0:
 
     # Validation set uses test-time transforms (no augmentation)
     valset_eval = CIFAR10Kaggle(
-        csv_file=os.path.join(data_cfg['data_dir'], 'train_labels.csv'),
-        img_dir=os.path.join(data_cfg['data_dir'], 'train_images'),
+        csv_file=os.path.join(effective_data_dir, 'train_labels.csv'),
+        img_dir=os.path.join(effective_data_dir, 'train_images'),
         transform=transform_test,
     )
     valset_eval = torch.utils.data.Subset(valset_eval, valset.indices)
@@ -105,14 +128,14 @@ if val_ratio and val_ratio > 0.0:
         trainset,
         batch_size=data_cfg['train_batch_size'],
         shuffle=True,
-        num_workers=data_cfg['num_workers'],pin_memory=True
+        **loader_kwargs
     )
 
     valloader = torch.utils.data.DataLoader(
         valset_eval,
         batch_size=data_cfg['test_batch_size'],
         shuffle=False,
-        num_workers=data_cfg['num_workers'],pin_memory=True
+        **loader_kwargs
     )
     print(f'   Train: {train_size} samples | Val: {val_size} samples')
 else:
@@ -121,7 +144,7 @@ else:
         full_trainset,
         batch_size=data_cfg['train_batch_size'],
         shuffle=True,
-        num_workers=data_cfg['num_workers'],pin_memory=True
+        **loader_kwargs
     )
     valloader = None
     print(f'   Full Training Mode: using all {total} samples for training (no validation split)')
@@ -205,13 +228,32 @@ if args.resume:
     start_epoch = checkpoint['epoch']
 
 # 6. Loss, Optimizer, and Scheduler
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(
-    net.parameters(),
-    lr=config['training']['lr'],
-    momentum=config['training']['momentum'],
-    weight_decay=float(config['training']['weight_decay']),
-)
+criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+optimizer_name = (args.optimizer or config['training'].get('optimizer', 'sgd')).lower()
+lr = float(args.lr if args.lr is not None else config['training']['lr'])
+weight_decay = float(config['training'].get('weight_decay', 5e-4))
+if optimizer_name == 'adamw':
+    betas = tuple(config['training'].get('betas', [0.9, 0.999]))
+    optimizer = optim.AdamW(
+        net.parameters(),
+        lr=lr,
+        betas=betas,
+        weight_decay=weight_decay,
+    )
+    print(f'==> Using AdamW optimizer: lr={lr}, weight_decay={weight_decay}, betas={betas}')
+elif optimizer_name == 'sgd':
+    momentum = float(config['training'].get('momentum', 0.9))
+    optimizer = optim.SGD(
+        net.parameters(),
+        lr=lr,
+        momentum=momentum,
+        weight_decay=weight_decay,
+    )
+    print(f'==> Using SGD optimizer: lr={lr}, momentum={momentum}, weight_decay={weight_decay}')
+else:
+    raise ValueError(f"Unsupported optimizer: '{optimizer_name}'. Choose 'sgd' or 'adamw'.")
+
+
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer,
     T_max=config['training']['epochs'],
