@@ -47,9 +47,9 @@ sbatch train.sbatch
 *(Defaults to `configs/base_config.yaml`)*
 
 ### 2. Run a Specific Config
-Pass the path to whichever config YAML you want to run:
+Pass the path to whichever config YAML you want to run - this is to run our best config:
 ```bash
-sbatch train.sbatch configs/resnet18_k3_skip.yaml
+sbatch train.sbatch configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml
 ```
 
 ---
@@ -59,7 +59,7 @@ sbatch train.sbatch configs/resnet18_k3_skip.yaml
 To run inference on the test set and generate a `submission.csv` for Kaggle:
 
 ```bash
-python predict.py --config configs/resnet18_k3_skip.yaml
+python predict.py --config configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml
 ```
 
 * By default, it loads `best.pth` from the checkpoint directory specified in the config.

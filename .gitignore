@@ -1,9 +1,5 @@
 # Checkpoints & Weights
-checkpoint/
-checkpoints/
-*.pth
-*.pt
-*.ckpt
+
 
 # Weights & Biases
 wandb/
