@@ -97,14 +97,32 @@ transform_test = transforms.Compose([
     get_normalize(data_cfg),
 ])
 
+# Check for fast in-memory dataset staged in /dev/shm
+user = os.environ.get('USER', 'yd3245')
+shm_data_dir = f"/dev/shm/{user}/data"
+if os.path.isdir(os.path.join(shm_data_dir, 'train_images')):
+    effective_data_dir = shm_data_dir
+    print(f'==> Using fast in-memory RAM dataset from: {effective_data_dir}')
+else:
+    effective_data_dir = data_cfg['data_dir']
+
 full_trainset = CIFAR10Kaggle(
-    csv_file=os.path.join(data_cfg['data_dir'], 'train_labels.csv'),
-    img_dir=os.path.join(data_cfg['data_dir'], 'train_images'),
+    csv_file=os.path.join(effective_data_dir, 'train_labels.csv'),
+    img_dir=os.path.join(effective_data_dir, 'train_images'),
     transform=transform_train,
 )
 
 val_ratio = data_cfg.get('val_ratio', 0.15)
 total = len(full_trainset)
+
+# Fast DataLoader settings: keep worker processes alive and prefetch asynchronously
+loader_kwargs = {
+    'num_workers': data_cfg['num_workers'],
+    'pin_memory': True,
+}
+if data_cfg['num_workers'] > 0:
+    loader_kwargs['persistent_workers'] = True
+    loader_kwargs['prefetch_factor'] = 4
 
 if val_ratio and val_ratio > 0.0:
     val_size = int(total * val_ratio)
@@ -117,8 +135,8 @@ if val_ratio and val_ratio > 0.0:
 
     # Validation set uses test-time transforms (no augmentation)
     valset_eval = CIFAR10Kaggle(
-        csv_file=os.path.join(data_cfg['data_dir'], 'train_labels.csv'),
-        img_dir=os.path.join(data_cfg['data_dir'], 'train_images'),
+        csv_file=os.path.join(effective_data_dir, 'train_labels.csv'),
+        img_dir=os.path.join(effective_data_dir, 'train_images'),
         transform=transform_test,
     )
     valset_eval = torch.utils.data.Subset(valset_eval, valset.indices)
@@ -127,14 +145,14 @@ if val_ratio and val_ratio > 0.0:
         trainset,
         batch_size=data_cfg['train_batch_size'],
         shuffle=True,
-        num_workers=data_cfg['num_workers'],
+        **loader_kwargs
     )
 
     valloader = torch.utils.data.DataLoader(
         valset_eval,
         batch_size=data_cfg['test_batch_size'],
         shuffle=False,
-        num_workers=data_cfg['num_workers'],
+        **loader_kwargs
     )
     print(f'   Train: {train_size} samples | Val: {val_size} samples')
 else:
@@ -143,7 +161,7 @@ else:
         full_trainset,
         batch_size=data_cfg['train_batch_size'],
         shuffle=True,
-        num_workers=data_cfg['num_workers'],
+        **loader_kwargs
     )
     valloader = None
     print(f'   Full Training Mode: using all {total} samples for training (no validation split)')
@@ -176,7 +194,9 @@ if total_params > max_budget:
 
 net = net.to(device)
 if device == 'cuda':
-    net = torch.nn.DataParallel(net)
+    if torch.cuda.device_count() > 1:
+        net = torch.nn.DataParallel(net)
+        print(f'==> Using DataParallel across {torch.cuda.device_count()} GPUs')
     cudnn.benchmark = True
 
 checkpoint_dir = config['checkpoint']['dir']
@@ -306,7 +326,7 @@ def sam_second_pass(inputs, batch_loss):
             e = p.grad * scale
             p.add_(e)
             eps.append(e)
-    optimizer.zero_grad()
+    optimizer.zero_grad(set_to_none=True)
     # Keep the BatchNorm running statistics from the first pass
     with frozen_bn_stats(), autocast():
         batch_loss(net(inputs)).backward()
@@ -350,8 +370,8 @@ def train(epoch):
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
-        inputs, targets = inputs.to(device), targets.to(device)
-        optimizer.zero_grad()
+        inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+        optimizer.zero_grad(set_to_none=True)
         mixed = use_cutmix and np.random.rand() < cutmix_prob
         if mixed:
             inputs, targets_a, targets_b, lam = cutmix_batch(inputs, targets, cutmix_alpha)
@@ -411,7 +431,7 @@ def validate(epoch):
     total = 0
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(valloader):
-            inputs, targets = inputs.to(device), targets.to(device)
+            inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
             with autocast():
                 outputs = net(inputs)
             loss = criterion(outputs.float(), targets)
