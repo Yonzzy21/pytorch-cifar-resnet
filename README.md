@@ -3,6 +3,11 @@
 This repository implements a modular, configurable ResNet architecture in PyTorch for a Kaggle CIFAR-10 competition. Every hyperparameter and architectural choice is driven by YAML config files, while maintaining the parameter count under 5M.
 Our best model checkpoint is shared in the repo under `checkpoints`, and reached 0.877 accuracy on the final leaderboard of the competition, ranking #21 out of 81 entries.
 
+For the parameter count, please see `best_config_wandb.yaml` for our best config and parameter count printed: 
+**Total params: 4,999,546**
+
+
+
 ---
 
 ##  Repository Structure
