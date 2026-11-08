@@ -1,7 +1,7 @@
 # CIFAR-10 ResNet Architecture Exploration (< 5M Parameters)
 
 This repository implements a modular, configurable ResNet architecture in PyTorch for a Kaggle CIFAR-10 competition. Every hyperparameter and architectural choice is driven by YAML config files, while maintaining the parameter count under 5M.
-Our best model checkpoint is shared in the repo under `checkpoints`, and reached 0.877 accuracy on the final leaderboard of the competition, ranking #21 out of 80 entries.
+Our best model checkpoint is shared in the repo under `checkpoints`, and reached 0.877 accuracy on the final leaderboard of the competition, ranking #21 out of 81 entries.
 
 ---
 
