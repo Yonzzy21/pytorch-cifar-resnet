@@ -4,7 +4,7 @@ This repository implements a modular, configurable ResNet architecture in PyTorc
 
 ---
 
-## 📁 Repository Structure
+##  Repository Structure
 
 ```
 pytorch-cifar-resnet/
@@ -22,7 +22,7 @@ pytorch-cifar-resnet/
 
 ---
 
-## 🏗️ Architecture & Hyperparameters
+##  Architecture & Hyperparameters
 
 The model `CustomResNet` implements the customizable ResNet specification:
 * **$N$ (`num_layers`)**: Number of residual stages (default: 4)
@@ -37,7 +37,7 @@ Before training starts, `main.py` counts all trainable parameters. If `total_par
 
 ---
 
-## 🚀 Running Experiments
+##  Running Experiments
 
 ### 1. Run the Baseline Config
 ```bash
@@ -54,7 +54,7 @@ sbatch train.sbatch configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml
 
 ---
 
-## 🔮 Generating Kaggle Submissions
+##  Generating Kaggle Submissions
 
 To run inference on the test set and generate a `submission.csv` for Kaggle:
 
@@ -73,7 +73,7 @@ python predict.py --config configs/fulldata_arch_B_SGD_1200_low_weight_decay.yam
 
 ---
 
-## 🧪 Creating a New Experiment
+##  Creating a New Experiment
 
 To test a new architecture or set of hyperparameters:
 
