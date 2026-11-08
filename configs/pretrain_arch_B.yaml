@@ -1,0 +1,58 @@
+# ============================================================
+# Self-Supervised Learning (RotNet) Pretraining Configuration
+# Task: 4-class rotation prediction on all 52,000 images
+# ============================================================
+
+experiment_name: "pretrain_arch_B_3761_avgpool_aug"
+seed: 42
+max_params: 5000000
+
+# --- Weights & Biases (W&B) Logging ---
+wandb:
+  enabled: true
+  project: "cifar10-resnet-challenge"
+  entity: "the_distillers"
+
+# --- Data ---
+data:
+  data_dir: "../data"
+  train_batch_size: 64
+  test_batch_size: 100
+  num_workers: 2
+  val_ratio: 0.10                     # 10% validation on rotation task
+
+  # Pretraining Augmentations
+  augmentation:
+    random_crop: true                 # Spatial shift invariant
+    horizontal_flip: false            # MUST be false (prevents 90 vs 270 ambiguity)
+    cutout: true                      # Forces model to use surrounding context
+    cutout_prob: 0.5
+    color_jitter: true                # Color invariant
+    autoaugment: false                # CIFAR10 policy can cause shear/rotation distortion
+
+# --- Model Architecture ---
+# Exactly identical backbone to your best model, but with 4 output classes!
+model:
+  name: "CustomResNet"
+  num_layers: 4
+  blocks_per_layer: [3, 7, 6, 1]
+  channels: [40, 80, 160, 320]
+  conv_kernel_sizes: [3, 3, 3, 3]
+  skip_kernel_sizes: [1, 1, 1, 1]
+  shortcut_type: "avgpool"
+  pool_size: 4
+  num_classes: 4                      # 4 rotation classes: 0°, 90°, 180°, 270°
+
+# --- Training ---
+training:
+  epochs: 40                         # 25-30 epochs is standard for RotNet warm-up
+  lr: 0.05
+  momentum: 0.9
+  weight_decay: 5e-4
+  early_stopping_patience: 8
+
+# --- Checkpointing ---
+checkpoint:
+  dir: "./checkpoints/pretrain_arch_B_3761_avgpool_aug"
+  filename: "best.pth"
+

@@ -1,0 +1,56 @@
+# ============================================================
+# Full-Dataset (50k images) Architecture B trained from scratch
+# ============================================================
+
+experiment_name: "fulldata_archB_from_scratch_300_crop_flip_auto_cutout"
+seed: 42
+max_params: 5000000                   # Strict Parameter Budget: 5 Million
+
+# --- Weights & Biases (W&B) Logging ---
+wandb:
+  enabled: true                       # Set to true to log to W&B
+  project: "cifar10-resnet-challenge" # Project name in your W&B dashboard
+  entity: "the_distillers"            # Your W&B team/username
+
+# --- Data ---
+data:
+  data_dir: "../data"                 # Path to Kaggle data
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 8
+  val_ratio: 0.0                      # 100% of all 50,000 images used for training
+
+  # Winning Augmentation Pipeline (Clean & Non-Destructive)
+  augmentation:
+    random_crop: true                 # Random crop with 4-pixel reflection padding
+    horizontal_flip: true             # 50% chance horizontal flip
+    autoaugment: true                 # Google CIFAR-10 policy
+    cutout: true                      # RandomErasing / Cutout
+    cutout_prob: 0.5                  # 50% probability of Cutout
+    color_jitter: false               # OFF: prevents over-distorting 32x32 pixels
+
+# --- Model Architecture ---
+# Architecture B: 4.97M parameters (Under 5M budget)
+model:
+  name: "CustomResNet"
+  num_layers: 4                       # N: Number of residual layers
+  blocks_per_layer: [3, 7, 6, 1]      # B_i: Number of blocks per residual layer
+  channels: [40, 80, 160, 320]        # C_i: Channels tuned to be ~4.97M (< 5M)
+  conv_kernel_sizes: [3, 3, 3, 3]     # F_i: 3x3 conv kernel throughout
+  skip_kernel_sizes: [1, 1, 1, 1]     # K_i: 1x1 skip connections
+  pool_size: 4                        # P: Average pool kernel size
+  num_classes: 10
+  shortcut_type: 'avgpool'            # AvgPool downsampling (avoids 75% spatial loss)
+
+# --- Training ---
+training:
+  optimizer: 'adamw'
+  epochs: 300
+  lr: 0.001
+  weight_decay: 1e-2
+
+# --- Checkpointing ---
+checkpoint:
+  dir: "./checkpoints/fulldata_arch_B_from_scratch_300"
+  filename: "best.pth"
+

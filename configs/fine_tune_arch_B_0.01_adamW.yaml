@@ -1,0 +1,63 @@
+# ============================================================
+# Base configuration for CIFAR-10 ResNet experiments
+# ============================================================
+
+experiment_name: "finetune_archB_lr_0.001_300_adamW"
+seed: 42
+max_params: 5000000                   # Strict Parameter Budget: 5 Million
+pretrained_backbone: "./checkpoints/pretrain_arch_B_3761_avgpool_aug/best.pth"
+# --- Weights & Biases (W&B) Logging ---
+wandb:
+  enabled: true                       # Set to true to log to W&B
+  project: "cifar10-resnet-challenge" # Project name in your W&B dashboard
+  entity: "the_distillers"               # Your W&B team/username
+
+# --- Data ---
+data:
+  data_dir: "../data"                  # Path to Kaggle data
+  train_batch_size: 128
+  test_batch_size: 100
+  num_workers: 8
+  val_ratio: 0.15                     # 15% validation split
+
+# Configurable Augmentation Pipeline
+  augmentation:
+    random_crop: true                 # Random crop with 4-pixel reflection padding
+    horizontal_flip: true             # 50% chance horizontal flip
+    cutout: true                      # RandomErasing / Cutout (masks random patches)
+    cutout_prob: 0.5                  # 50% probability of applying Cutout
+    color_jitter: true               # Lighting/contrast adjustments
+    autoaugment: true                # Neural-search CIFAR-10 policy
+
+
+# --- Model Architecture ---
+# Parameters: N=4 layers, 3x3 convs throughout, 1x1 skip connections
+# Total parameters: 4,368,690 (Budget: 5,000,000)
+model:
+  name: "CustomResNet"
+  num_layers: 4                       # N: Number of residual layers
+  blocks_per_layer: [3, 7, 6, 1]      # B_i: Number of blocks per residual layer
+  channels: [40, 80, 160, 320]        # C_i: Channels tuned to be ~4.37M (< 5M)
+  conv_kernel_sizes: [3, 3, 3, 3]     # F_i: 3x3 conv kernel throughout
+  skip_kernel_sizes: [1, 1, 1, 1]     # K_i: 1x1 skip connections (saves 537k params!)
+  pool_size: 4                        # P: Average pool kernel size
+  num_classes: 10
+  shortcut_type: 'avgpool'  # Options: 'conv' | 'avgpool'
+
+# --- Training ---
+training:
+  optimizer: 'adamw'
+  epochs: 300
+  lr: 0.001
+  weight_decay: 0.05
+  #early_stopping_patience: 0        # Give augmented data room to converge
+
+# --- Checkpointing ---
+checkpoint:
+  dir: "./checkpoints/finetune_arch_B_adamw_0.001_300"
+  filename: "best.pth"
+
+
+##### SAME AS CONV BUT WITH avgPOOL BATCH 64 3 BLOCKS PER LAYER
+##### Using pretrained_backbone: "./checkpoints/rotnet_pretrain/best.pth"
+##### for fine tune, if delete it , it doesnt use pretrain 
