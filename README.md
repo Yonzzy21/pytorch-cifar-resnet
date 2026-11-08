@@ -1,6 +1,6 @@
 # CIFAR-10 ResNet Architecture Exploration (< 5M Parameters)
 
-This repository implements a modular, configurable ResNet architecture in PyTorch for the Kaggle CIFAR-10 competition. Every hyperparameter and architectural choice is driven by YAML config files, with an automatic parameter budget enforcer (< 5,000,000 parameters) and Weights & Biases tracking.
+This repository implements a modular, configurable ResNet architecture in PyTorch for a Kaggle CIFAR-10 competition. Every hyperparameter and architectural choice is driven by YAML config files, while maintaining the parameter count under 5M.
 
 ---
 
@@ -9,8 +9,6 @@ This repository implements a modular, configurable ResNet architecture in PyTorc
 ```
 pytorch-cifar-resnet/
 ├── configs/                       # Experiment YAML configurations
-│   ├── base_config.yaml           # Baseline (1x1 skip, 4.37M params)
-│   └── resnet18_k3_skip.yaml      # 3x3 skip connections (4.91M params)
 ├── models/
 │   ├── __init__.py                # Model exports
 │   └── resnet.py                  # CustomResNet and CustomBlock definitions
@@ -35,7 +33,7 @@ The model `CustomResNet` implements the customizable ResNet specification:
 * **$P$ (`pool_size`)**: Spatial pooling size before the linear classifier (default: 4)
 
 ### Parameter Budget Enforcer
-Before training starts, `main.py` counts all trainable parameters. If `total_params > max_params` (5,000,000), it raises an immediate error to prevent wasted compute.
+Before training starts, `main.py` counts all trainable parameters. If `total_params > max_params` (5,000,000), it raises an immediate error.
 
 ---
 
@@ -120,24 +118,3 @@ To test a new architecture or set of hyperparameters:
    ```
 
 ---
-
-## 📊 Monitoring Jobs & Logs
-
-* **Check running jobs**:
-  ```bash
-  squeue -u yd3245
-  ```
-
-* **Cancel a job**:
-  ```bash
-  scancel <JOB_ID>
-  ```
-
-* **View live training logs**:
-  ```bash
-  tail -f /scratch/yd3245/projects/DeepLearning/Resnet/logs/train_<JOB_ID>.out
-  ```
-
-* **Weights & Biases**:
-  View live curves (loss, accuracy, learning rate) at your team dashboard:
-  [https://wandb.ai/the_distillers/cifar10-resnet-challenge](https://wandb.ai/the_distillers/cifar10-resnet-challenge)
