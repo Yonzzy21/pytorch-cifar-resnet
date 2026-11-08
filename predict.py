@@ -6,10 +6,62 @@ import pandas as pd
 from tqdm import tqdm
 
 import torch
+import torch.nn.functional as F
 import torchvision.transforms as transforms
 
 import models
 from dataset import CIFAR10KaggleTest
+
+
+def predict_with_10crop_tta(net, inputs):
+    """Center-Weighted 10-Crop Test-Time Augmentation (TTA) with Logit Averaging.
+
+    Why 10-Crop?
+    Convolutional Neural Networks are not strictly translation invariant (due to strided convolutions
+    and spatial pooling). When an image object is shifted by even 1-2 pixels, the resulting feature map
+    activations change. By sampling 5 spatial crops (center + 4 corner shifts of 2 pixels) along with
+    their horizontal mirror flips (5 x 2 = 10 views total), we average out boundary misalignments.
+
+    Why Center-Weighted?
+    In CIFAR-10, images are generally roughly object-centered. If all 10 views had equal weight (0.10 each),
+    the 8 shifted crops (80% of total vote) could overpower a well-framed center image.
+    We therefore allocate:
+      - 50% total weight to Center views (0.25 original + 0.25 horizontal flip)
+      - 50% total weight distributed across the 4 shifted corner views (0.0625 each for 4 corners x 2 flips)
+
+    Why Logit Averaging?
+    Averaging raw logits before softmax behaves as a geometric mean over probabilities.
+    It prevents any single distorted crop from outputting an extreme probability (>99%) and
+    overruling the consensus of the remaining views.
+    """
+    # 1. Pad input image by 2 pixels on all 4 borders using reflection padding.
+    #    [Batch, 3, 32, 32] -> [Batch, 3, 36, 36]
+    padded = F.pad(inputs, (2, 2, 2, 2), mode='reflect')
+
+    # 2. Extract 5 spatial crops of size 32x32:
+    # Center crop: exactly recovers the original unshifted inputs [2:34, 2:34]
+    crop_center = padded[:, :, 2:34, 2:34]
+
+    # 4 corner crops shifted by 2 pixels in each diagonal direction
+    crop_tl = padded[:, :, 0:32, 0:32]  # Shifted 2px up, 2px left
+    crop_tr = padded[:, :, 0:32, 4:36]  # Shifted 2px up, 2px right
+    crop_bl = padded[:, :, 4:36, 0:32]  # Shifted 2px down, 2px left
+    crop_br = padded[:, :, 4:36, 4:36]  # Shifted 2px down, 2px right
+
+    # 3. Weights: 50% Center, 50% Corners
+    w_center = 0.25     # 0.25 * 2 = 0.50
+    w_corner = 0.0625   # 0.0625 * 8 = 0.50
+
+    # 4. Forward pass for Center views (original + horizontal flip)
+    logits = w_center * net(crop_center)
+    logits += w_center * net(torch.flip(crop_center, dims=[3]))
+
+    # 5. Forward pass for the 4 shifted corner views (original + horizontal flip)
+    for crop in (crop_tl, crop_tr, crop_bl, crop_br):
+        logits += w_corner * net(crop)
+        logits += w_corner * net(torch.flip(crop, dims=[3]))
+
+    return logits
 
 
 def main():
@@ -22,6 +74,10 @@ def main():
                         help='Path where to save the submission CSV')
     parser.add_argument('--batch_size', type=int, default=100,
                         help='Inference batch size')
+    parser.add_argument('--tta', action='store_true',
+                        help='Enable Test-Time Augmentation')
+    parser.add_argument('--tta_mode', type=str, default='10crop', choices=['10crop', 'flip'],
+                        help="TTA method: '10crop' (Center-weighted 10-view spatial shift TTA) or 'flip' (2-view flip TTA)")
     args = parser.parse_args()
 
     # 1. Load Config
@@ -104,17 +160,34 @@ def main():
     )
 
     print(f'==> Running inference on {len(testset)} test images..')
+    if args.tta:
+        print(f"==> Test-Time Augmentation (TTA) active: Mode='{args.tta_mode}'")
+    else:
+        print("==> TTA Disabled (single standard forward pass)")
 
     # 6. Predict Loop
     all_ids = []
     all_preds = []
 
     with torch.no_grad():
-        for inputs, ids in tqdm(testloader, desc='Predicting'):
+        desc = 'Predicting' + (f' (TTA: {args.tta_mode})' if args.tta else '')
+        for inputs, ids in tqdm(testloader, desc=desc):
             inputs = inputs.to(device)
-            outputs = net(inputs)
-            _, predicted = outputs.max(1)
-
+            if args.tta:
+                if args.tta_mode == '10crop':
+                    # Center-weighted 10-crop TTA (Center original+flip: 50%, 4 corner shifts original+flip: 50%)
+                    # Uses logit averaging to prevent overconfidence distortion
+                    logits = predict_with_10crop_tta(net, inputs)
+                    _, predicted = logits.max(1)
+                else:
+                    # Classic 2-view flip TTA (original + horizontal flip)
+                    probs_orig = net(inputs).softmax(dim=1)
+                    probs_flip = net(torch.flip(inputs, dims=[3])).softmax(dim=1)
+                    probs = 0.5 * (probs_orig + probs_flip)
+                    _, predicted = probs.max(1)
+            else:
+                outputs = net(inputs)
+                _, predicted = outputs.max(1)
             all_ids.extend(ids.tolist())
             all_preds.extend(predicted.cpu().tolist())
 

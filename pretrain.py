@@ -11,7 +11,7 @@ import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import wandb
 import models
-from ssl_dataset import RotationDataset
+from pretrain_dataset import RotationDataset
 from utils import progress_bar
 
 # 1. Parse Arguments

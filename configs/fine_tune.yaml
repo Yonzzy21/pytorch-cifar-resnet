@@ -2,7 +2,7 @@
 # Base configuration for CIFAR-10 ResNet experiments
 # ============================================================
 
-experiment_name: "finetune_avg_pool"
+experiment_name: "finetune_avg_pool_lr_0.05"
 seed: 42
 max_params: 5000000                   # Strict Parameter Budget: 5 Million
 pretrained_backbone: "./checkpoints/rotnet_pretrain/best.pth"
@@ -46,15 +46,15 @@ model:
 
 # --- Training ---
 training:
-  epochs: 80
-  lr: 0.01
+  epochs: 100
+  lr: 0.05
   momentum: 0.9
   weight_decay: 5e-4
-  early_stopping_patience: 10         # Give augmented data room to converge
+  #early_stopping_patience: 0        # Give augmented data room to converge
 
 # --- Checkpointing ---
 checkpoint:
-  dir: "./checkpoints/finetune_avg_pool"
+  dir: "./checkpoints/finetune_avg_pool_lr_0.05"
   filename: "best.pth"
 
 
