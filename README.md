@@ -25,6 +25,7 @@ Other things to note:
 * We used random crop augmentation with reflection padding.
 * We used color jitter augmentation.
 * We used spatial pooling with kernel size 4.
+* We used Test Time Augmentation by flipping the image horizontally.
 
 The `.yaml` that corresponds to this setup is: `configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml`
 Below you can see how to set up the HPC to run this config. Note that the train.sbatch is a template and you should change the `--job-name` to match your experiment name as well as the slurm account.
