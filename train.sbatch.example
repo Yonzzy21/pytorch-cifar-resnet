@@ -8,6 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/train_%j.out
 #SBATCH --error=logs/train_%j.err
+#SBATCH --account=example_account
 
 # Path to the config file (defaults to configs/base_config.yaml)
 CONFIG_PATH=${1:-"configs/base_config.yaml"}

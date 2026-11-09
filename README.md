@@ -7,7 +7,25 @@ Our best model checkpoint is shared in the repo under `checkpoints`, and reached
 
 For the parameter count, please see `best_config_wandb.yaml` for our best config and parameter count printed: 
 **Total params: 4,999,546**
+
 In `best_config_wandb.log`, you can see the training of our best model, with training accuracy reaching 97.928%. On this run we did not have validation accuracy as we trained on the entire dataset.
+
+Other things to note:
+* The model was trained for 1200 epochs with cosine annealing learning rate schedule. 
+* We used SGD optimizer with momentum 0.9 and weight decay 2e-4.
+* We used AdamW optimizer with betas [0.9, 0.999] and weight decay 2e-4.
+* We used Cutout augmentation with probability 0.7.
+* We used AutoAugment augmentation policy.
+* We used horizontal flip augmentation.
+* We used random crop augmentation with reflection padding.
+* We used color jitter augmentation.
+* We used spatial pooling with kernel size 4.
+
+The `.yaml` that corresponds to this setup is: `configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml`
+Below you can see how to set up the HPC to run this config. Note that the train.sbatch is a template and you should change the `--job-name` to match your experiment name as well as the slurm account.
+```bash
+
+```
 
 ---
 
@@ -19,12 +37,12 @@ pytorch-cifar-resnet/
 ├── models/
 │   ├── __init__.py                # Model exports
 │   └── resnet.py                  # CustomResNet and CustomBlock definitions
-├── checkpoints/                   # Saved best model weights (.pth) [ignored by git]
+├── checkpoints/                   # Saved best model weights (.pth) [ignored by git except best one]
 ├── dataset.py                     # Custom Kaggle dataset loader (train/val split)
 ├── main.py                        # Training & validation loop
 ├── train.sbatch.example           # Slurm template (train.sbatch is git-ignored for security)
 ├── utils.py                       # Progress bar & helper utilities
-└── .gitignore                     # Ignores weights, logs, data, and wandb
+└── .gitignore                     # Ignores logs, data, and wandb credentials and files. Added relevant ones in repository.
 ```
 
 ---
