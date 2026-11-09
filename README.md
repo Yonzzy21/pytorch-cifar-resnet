@@ -5,10 +5,14 @@ Our best model checkpoint is shared in the repo under `checkpoints`, and reached
 
 # Deliverables in the repository:
 
-For the parameter count, please see `best_config_wandb.yaml` for our best config and parameter count printed: 
-**Total params: 4,999,546**
+* **Evaluation & Plots Notebook:** [`evaluation_and_plots.ipynb`] — Executable Jupyter notebook with all outputs, parameter budget compliance (< 5M), and plots:
+  1. **Empirical Ablation Study:** Bar chart illustrating gains across model depth, AvgPool shortcuts, augmentations, and schedule extensions.
+  2. **Test Prediction Distribution:** Class frequency bar chart across all 10 CIFAR-10 classes on the 2,000 unlabelled test set (200 predictions / class).
+* **Trained Model Checkpoint:** `checkpoints/fulldata_arch_B_sgd_1200_low_weight_decay/best.pth` (19.1 MB, 1200 epochs).
+* **Final Test Accuracy:** **87.70%** on the competitive Kaggle test leaderboard (Rank #21 / 81).
+* **Strict Parameter Count:** **4,973,850 parameters** (< 5,000,000 parameter budget, 26,150 parameter headroom).
+* **Experimental configurations and results throughout the project:** For specific experimental configurations and results throughout the project, see our complementary paper.
 
-In `best_config_wandb.log`, you can see the training of our best model, with training accuracy reaching 97.928%. On this run we did not have validation accuracy as we trained on the entire dataset.
 
 Other things to note:
 * The model was trained for 1200 epochs with cosine annealing learning rate schedule. 
@@ -31,16 +35,17 @@ Below you can see how to set up the HPC to run this config. Note that the train.
 
 ```
 pytorch-cifar-resnet/
+├── evaluation_and_plots.ipynb     # Deliverable: Model evaluation, parameter verification & plots
 ├── configs/                       # Experiment YAML configurations
 ├── models/
 │   ├── __init__.py                # Model exports
 │   └── resnet.py                  # CustomResNet and CustomBlock definitions
-├── checkpoints/                   # Saved best model weights (.pth) [ignored by git except best one]
+├── checkpoints/                   # Saved best model weights (.pth) [best.pth tracked]
 ├── dataset.py                     # Custom Kaggle dataset loader (train/val split)
 ├── main.py                        # Training & validation loop
 ├── train.sbatch.example           # Slurm template (train.sbatch is git-ignored for security)
 ├── utils.py                       # Progress bar & helper utilities
-└── .gitignore                     # Ignores logs, data, and wandb credentials and files. Added relevant ones in repository.
+└── .gitignore                     # Git ignore rules
 ```
 
 ---
