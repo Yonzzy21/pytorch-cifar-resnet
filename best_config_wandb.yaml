@@ -1,0 +1,168 @@
+_wandb:
+    value:
+        cli_version: 0.30.0
+        e:
+            ymxo57duh2co6vnbwt8d549762sq5lgv:
+                args:
+                    - --config
+                    - /scratch/yd3245/projects/DeepLearning/Resnet/pytorch-cifar-resnet/configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml
+                codePath: main.py
+                codePathLocal: main.py
+                cpu_count: 128
+                cpu_count_logical: 128
+                cudaVersion: "13.3"
+                disk:
+                    /:
+                        total: "28027527168"
+                        used: "180576256"
+                email: yd3245@nyu.edu
+                executable: /scratch/yd3245/envs/conda_envs/my_env/bin/python
+                git:
+                    commit: 093d65aa966a806f3441bedb1696d4cf328a5b42
+                    remote: https://github.com/Yonzzy21/pytorch-cifar-resnet
+                gpu: NVIDIA L40S
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "48305799168"
+                      name: NVIDIA L40S
+                      uuid: GPU-98bc076b-054e-29c8-5ec9-209cd20edd98
+                host: gl037.hpc.nyu.edu
+                memory:
+                    total: "540216639488"
+                os: Linux-6.12.0-211.47.1.el10_2.x86_64-x86_64-with-glibc2.35
+                program: /scratch/yd3245/projects/DeepLearning/Resnet/pytorch-cifar-resnet/main.py
+                python: CPython 3.10.20
+                root: /scratch/yd3245/projects/DeepLearning/Resnet/pytorch-cifar-resnet
+                slurm:
+                    cluster_name: torch
+                    conf: /opt/slurm/data/slurmd/conf-cache/slurm.conf
+                    cpus_on_node: "8"
+                    cpus_per_task: "8"
+                    gpus_on_node: "1"
+                    gtids: "0"
+                    job_account: torch_pr_1003_general
+                    job_cpus_per_node: "8"
+                    job_end_time: "1793928042"
+                    job_gid: "4528142"
+                    job_gpus: "0"
+                    job_id: "21994314"
+                    job_name: resnet-cifar10
+                    job_nodelist: gl037
+                    job_num_nodes: "1"
+                    job_partition: l40s_public
+                    job_qos: gpu48
+                    job_start_time: "1793910042"
+                    job_uid: "4528142"
+                    job_user: yd3245
+                    jobid: "21994314"
+                    jobtmp: /state/partition1/job-21994314
+                    localid: "0"
+                    mem_per_node: "16384"
+                    nnodes: "1"
+                    nodeid: "0"
+                    nodelist: gl037
+                    nprocs: "1"
+                    ntasks: "1"
+                    ntasks_per_node: "1"
+                    oom_kill_step: "0"
+                    prio_process: "0"
+                    procid: "0"
+                    script_context: prolog_task
+                    submit_dir: /scratch/yd3245
+                    submit_host: torch-login-b-3.hpc-infra.svc.cluster.local
+                    task_pid: "2184825"
+                    tasks_per_node: "1"
+                    tmpdir: /state/partition1/job-21994314
+                    topology_addr: gl037
+                    topology_addr_pattern: node
+                    tres_per_task: cpu=8
+                startedAt: "2026-11-05T20:28:09.035624Z"
+                writerId: ymxo57duh2co6vnbwt8d549762sq5lgv
+        m: []
+        python_version: 3.10.20
+        t:
+            "1":
+                - 1
+                - 41
+            "2":
+                - 1
+                - 41
+            "3":
+                - 1
+                - 2
+                - 13
+                - 16
+                - 41
+            "4": 3.10.20
+            "5": 0.30.0
+            "8":
+                - 2
+            "12": 0.30.0
+            "13": linux-x86_64
+checkpoint:
+    value:
+        dir: ./checkpoints/fulldata_arch_B_sgd_1200_low_weight_decay
+        filename: best.pth
+data:
+    value:
+        augmentation:
+            autoaugment: true
+            color_jitter: false
+            cutout: true
+            cutout_prob: 0.7
+            horizontal_flip: true
+            random_crop: true
+        data_dir: ../data
+        num_workers: 8
+        test_batch_size: 100
+        train_batch_size: 128
+        val_ratio: 0
+experiment_name:
+    value: fulldata_archB_sgd_1200_low_weight_decay
+max_params:
+    value: 5000000
+model:
+    value:
+        blocks_per_layer:
+            - 3
+            - 7
+            - 6
+            - 1
+        channels:
+            - 40
+            - 80
+            - 160
+            - 320
+        conv_kernel_sizes:
+            - 3
+            - 3
+            - 3
+            - 3
+        name: CustomResNet
+        num_classes: 10
+        num_layers: 4
+        pool_size: 4
+        shortcut_type: avgpool
+        skip_kernel_sizes:
+            - 1
+            - 1
+            - 1
+            - 1
+seed:
+    value: 42
+total_params:
+    value: 4976530
+training:
+    value:
+        epochs: 1200
+        lr: 0.05
+        momentum: 0.9
+        optimizer: sgd
+        weight_decay: "2e-4"
+wandb:
+    value:
+        enabled: true
+        entity: the_distillers
+        project: cifar10-resnet-challenge
