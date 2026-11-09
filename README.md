@@ -2,7 +2,7 @@
 
 Team **The Distillers**: Jonathan David and Matan Tsafrir (Deep Learning, Prof. Chinmay Hegde).
 
-This repository trains a configurable ResNet in PyTorch for the course's Kaggle CIFAR-10 competition, under a budget of 5M trainable parameters. Every architectural and training choice is set in a YAML config file. Our final model reached **87.7%** accuracy on the private Kaggle leaderboard (rank 21 of 81; 89.9% on the public leaderboard). The experiments and design decisions behind it are described in our report.
+This repository trains a configurable ResNet in PyTorch for the course's Kaggle CIFAR-10 competition, under a budget of 5M trainable parameters. Our final model reached **87.7%** accuracy on the private Kaggle leaderboard (rank 21 of 81; 89.9% on the public leaderboard). The experiments and design decisions behind it are described in our report.
 
 ## Acknowledgment
 
