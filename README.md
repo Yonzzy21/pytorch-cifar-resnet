@@ -72,110 +72,78 @@ Before training starts, `main.py` counts all trainable parameters. If `total_par
 
 ---
 
-##  Running Experiments
+##  Reproducing Our Results
 
-### 1. Run the Baseline Config
-```bash
-cd /scratch/yd3245/projects/DeepLearning/Resnet/pytorch-cifar-resnet
-sbatch train.sbatch
-```
-*(Defaults to `configs/base_config.yaml`)*
+We trained on NYU's HPC cluster with Slurm, and the commands below assume it. Outside Slurm, run `python main.py --config <config>` directly instead of `sbatch train.sbatch <config>`.
 
-### 2. Run a Specific Config
-Pass the path to whichever config YAML you want to run - this is to run our best config:
+### 1. Setup
+
+* **Packages:** PyTorch, torchvision, PyYAML, pandas, Pillow, tqdm, matplotlib and wandb.
+* **Data:** place the Kaggle competition files in a `data/` folder next to the repository (configs use `data_dir: "../data"`):
+  ```
+  data/
+  ├── train_images/
+  ├── train_labels.csv
+  ├── test_images/
+  └── test.csv
+  ```
+* **Weights & Biases:** the configs log to our team's W&B project. To run without it, set `wandb.enabled: false` in the config or run with `WANDB_MODE=disabled`.
+* **Slurm:** copy `train.sbatch.example` to `train.sbatch` and fill in your account, overlay, environment and (optionally) W&B key.
+
+### 2. Train the final model
+
 ```bash
+cd /scratch/<your-netid>/pytorch-cifar-resnet
 sbatch train.sbatch configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml
 ```
 
----
+The weights are saved to `checkpoints/fulldata_arch_B_sgd_1200_low_weight_decay/best.pth`. Any other config in `configs/` runs the same way.
 
-##  Generating Kaggle Submissions
-
-To run inference on the test set and generate a `submission.csv` for Kaggle:
+### 3. Generate the Kaggle submission
 
 ```bash
 python predict.py --config configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml --tta --tta_mode flip
 ```
 
-* `--tta --tta_mode flip` averages each prediction with that of the mirrored image, as in our final submission. (`--tta_mode 10crop` is also available.)
+* `--tta --tta_mode flip` averages each prediction with that of the mirrored image, as in our final submission. With the committed checkpoint, this command reproduces `Final_submission_fulldata_arch_B_1200_low_weight_decay.csv` exactly. (`--tta_mode 10crop` is also available.)
+* By default, it loads `best.pth` from the checkpoint directory in the config. Use `--checkpoint <path>` and `--output <file>` to change either.
 
-* By default, it loads `best.pth` from the checkpoint directory specified in the config.
-* To specify a custom checkpoint or output filename:
-  ```bash
-  python predict.py \
-      --config configs/resnet18_k3_skip.yaml \
-      --checkpoint checkpoints/resnet18_k3_skip/best.pth \
-      --output submissions/sub_k3_skip.csv
-  ```
+### 4. Check the result without training
+
+Run `evaluation_and_plots.ipynb`. It loads the committed checkpoint and works on a CPU.
 
 ---
 
 ##  Creating a New Experiment
 
-To test a new architecture or set of hyperparameters:
-
-1. **Create a new config file** in `configs/`:
+1. **Copy a config:**
    ```bash
-   cp configs/base_config.yaml configs/my_new_experiment.yaml
+   cp configs/fulldata_arch_B_SGD_1200_low_weight_decay.yaml configs/my_new_experiment.yaml
    ```
 
-2. **Edit the parameters** inside `configs/my_new_experiment.yaml`:
+2. **Edit it.** The main settings, for example:
    ```yaml
    experiment_name: "my_new_experiment"
-   seed: 42
-   max_params: 5000000                   # Strict budget: raises error if exceeded
-
-   # --- Weights & Biases (W&B) Logging ---
-   wandb:
-     enabled: true                       # Set to true to log to W&B
-     project: "cifar10-resnet-challenge"
-     entity: "the_distillers"            # W&B team/username
-
-   # --- Data & Augmentation ---
    data:
-     data_dir: "../data"                 # Path to train_images/ and train_labels.csv
-     train_batch_size: 128
-     test_batch_size: 100
-     num_workers: 8
-     val_ratio: 0.0                      # 0.0 = full 50k train set, 0.10 = 10% validation split
-
-     # Augmentation Pipeline
+     val_ratio: 0.1                      # 0 = train on all 50k images; 0.1 = hold out 10% for validation
      augmentation:
-       random_crop: true                 # Random crop with 4-pixel reflection padding
-       horizontal_flip: true             # 50% chance horizontal flip
-       autoaugment: true                 # CIFAR-10 AutoAugment policy
-       cutout: true                      # RandomErasing / Cutout
-       cutout_prob: 0.7                  # Probability of applying Cutout (e.g. 0.5 - 0.7)
-       color_jitter: false               # Lighting/contrast adjustments
-
-   # --- Model Architecture ---
+       autoaugment: true
+       cutout_prob: 0.7
    model:
-     name: "CustomResNet"
-     num_layers: 4                       # N: Number of residual layers
-     blocks_per_layer: [3, 7, 6, 1]      # B_i: Blocks per layer (e.g. [3, 7, 6, 1] for Arch B)
-     channels: [40, 80, 160, 320]        # C_i: Channels tuned to stay < 5M parameters
-     conv_kernel_sizes: [3, 3, 3, 3]     # F_i: 3x3 conv kernel throughout
-     skip_kernel_sizes: [1, 1, 1, 1]     # K_i: 1x1 skip connections
-     pool_size: 4                        # P: Spatial pooling kernel size before linear head
-     num_classes: 10
-     shortcut_type: 'avgpool'            # 'avgpool' (avoids spatial loss) or 'conv'
-
-   # --- Training & Optimization ---
+     blocks_per_layer: [3, 7, 6, 1]      # B_i
+     channels: [40, 80, 160, 320]        # C_i
+     shortcut_type: 'avgpool'            # 'avgpool' or 'conv'
    training:
      optimizer: 'sgd'                    # 'sgd' or 'adamw'
-     lr: 0.05                            # Learning rate (e.g. 0.05 - 0.1 for SGD, 1e-3 for AdamW)
-     momentum: 0.9                       # Momentum factor (used if optimizer: 'sgd')
-     betas: [0.9, 0.999]                 # Betas (used if optimizer: 'adamw')
-     weight_decay: 2e-4                  # L2 regularization factor
-     epochs: 1200                        # CosineAnnealingLR schedules over this duration
-
-   # --- Checkpointing ---
+     lr: 0.05
+     weight_decay: 2e-4
+     epochs: 1200
    checkpoint:
      dir: "./checkpoints/my_new_experiment"
-     filename: "best.pth"
    ```
+   The model settings are explained in [Architecture & Hyperparameters](#architecture--hyperparameters); `configs/` holds complete examples.
 
-3. **Launch the training job**:
+3. **Launch it:**
    ```bash
    sbatch train.sbatch configs/my_new_experiment.yaml
    ```
